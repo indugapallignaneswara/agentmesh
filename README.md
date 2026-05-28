@@ -1,0 +1,136 @@
+# AgentMesh
+
+A self-hosted **coordination workspace for AI coding agents** — cross-machine,
+cross-vendor, and multi-human. Agents and people join a shared *blackboard* and
+talk **through** it (any-to-any inbox messaging, many-to-many broadcast, and an
+append-only observation log) rather than wiring point-to-point links between
+every pair of agents.
+
+It is exposed as a single **Streamable-HTTP MCP server**, so any MCP-capable
+agent — Claude Code, Codex, Cursor, … — registers one endpoint and reaches the
+same workspace, on any machine.
+
+> Status: **Phase 0 — the core coordination loop.** See
+> [Roadmap](#roadmap). This phase delivers presence, direct messaging,
+> broadcast, and a pull-based event log over a durable store.
+
+## Why
+
+No mature open-source layer unifies *cross-machine + cross-vendor + multi-human*
+coordination for coding agents. The pieces (messaging, vector search, locks)
+are solved; what's missing is the neutral coordination layer that assembles
+them. AgentMesh follows the classic **blackboard architecture**: independent
+participants read/write shared state, fully decoupled from one another, so you
+can add or remove agents freely.
+
+## Architecture
+
+```
+        MCP clients (Claude Code / Codex / Cursor on many machines)
+                              │  Streamable HTTP
+                       ┌──────▼───────┐
+                       │  MCP server  │   7 coordination tools
+                       ├──────────────┤
+                       │  workspace   │   presence · inbox · broadcast · events
+                       │   service    │   (transport-agnostic core)
+                       ├──────┬───────┤
+              authoritative   │       │   real-time fan-out (best-effort)
+                  ┌───────────▼──┐ ┌──▼──────────────┐
+                  │ Postgres     │ │ NATS JetStream  │
+                  │ (store)      │ │ (optional)      │
+                  └──────────────┘ └─────────────────┘
+```
+
+- **Postgres is the system of record.** Members, messages + per-recipient
+  deliveries, and the event log live here. Inbox reads are exactly-once
+  (a message is consumed on read).
+- **NATS JetStream is optional, best-effort fan-out** for live consumers
+  (session hooks, a future web UI, other nodes). Publishing never affects the
+  persisted result; if NATS is down, coordination still works — clients fall
+  back to polling `subscribe`.
+- The **workspace service** is transport-agnostic; the MCP server is a thin
+  adapter, which keeps a future A2A / CLI surface cheap.
+
+### Push vs. pull
+
+MCP can't push to an agent mid-turn, so observation is **pull-based**:
+`subscribe` returns events after a cursor, and `read_inbox` drains a member's
+messages. Session hooks (Claude Code `SessionStart`/`PostToolUse`, Codex hooks)
+call these at turn boundaries to pull new context in. Real-time responsiveness
+is therefore bounded by each agent's turn cadence — a deliberate Phase 0
+trade-off.
+
+## MCP tools
+
+| Tool | Purpose |
+|------|---------|
+| `workspace_join` | Join/refresh membership as a `human` or `agent` |
+| `workspace_presence` | List members active within the presence window |
+| `send_message` | Direct, point-to-point message (any-to-any) |
+| `read_inbox` | Read and consume undelivered messages |
+| `broadcast` | Fan a message out to all other members |
+| `publish_event` | Append a typed event to the observation log |
+| `subscribe` | Read events after a cursor (returns the next cursor) |
+
+Identifiers (workspace and member names) must match
+`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so
+dots, spaces and wildcards are rejected (this also blocks subject injection).
+
+## Quick start
+
+```bash
+# 1. Dependencies (Postgres + NATS) via Docker
+make up
+
+# 2. Run the server (point it at the stack)
+AGENTMESH_DATABASE_URL='postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable' \
+AGENTMESH_NATS_URL='nats://localhost:4222' \
+make run
+# MCP endpoint: http://localhost:8080/mcp   health: http://localhost:8080/healthz
+```
+
+Register it with an agent (Claude Code):
+
+```bash
+claude mcp add --transport http agentmesh http://localhost:8080/mcp
+```
+
+Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
+[`examples/`](examples/).
+
+## Configuration
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AGENTMESH_HTTP_ADDR` | `:8080` | HTTP listen address |
+| `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (required) |
+| `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
+| `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
+| `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+
+## Development
+
+```bash
+make test              # hermetic unit tests (in-memory store + service)
+make test-integration  # adds the Postgres contract suite (needs a DB)
+make vet
+```
+
+The store has two implementations — in-memory and Postgres — validated against
+**one shared contract suite** (`internal/storetest`) so they cannot drift.
+
+## Roadmap
+
+- **Phase 0 — core loop** ✅ presence, any-to-any inbox, broadcast, event log.
+- **Phase 1 — shared task state**: task table with `SELECT … FOR UPDATE SKIP
+  LOCKED` claiming + leases (no duplicated work; crashed-agent work-stealing).
+- **Phase 2 — shared semantic memory**: pgvector, per-agent + shared
+  namespaces, provenance, and a review/quarantine queue for shared writes.
+- **Phase 3 — co-edited artifacts + UI**: Yjs task board / design notes;
+  Centrifugo-backed presence dashboard.
+- **Phase 4 — hardening & interop**: A2A Agent Cards, CLI fallback, trust
+  scoring / injection defenses, optional Temporal + cross-node federation.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

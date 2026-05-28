@@ -1,0 +1,8 @@
+{
+  "// note": "Place in .cursor/mcp.json (project) or ~/.cursor/mcp.json (global). Custom servers require a paid Cursor tier.",
+  "mcpServers": {
+    "agentmesh": {
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}

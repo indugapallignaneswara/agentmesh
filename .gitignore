@@ -1,0 +1,19 @@
+# Binaries
+/bin/
+/agentmesh
+*.exe
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Env / secrets
+.env
+*.local
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store

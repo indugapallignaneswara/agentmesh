@@ -1,0 +1,5 @@
+# Add to ~/.codex/config.toml to register AgentMesh with Codex CLI.
+# Codex supports Streamable-HTTP MCP servers.
+
+[mcp_servers.agentmesh]
+url = "http://localhost:8080/mcp"
