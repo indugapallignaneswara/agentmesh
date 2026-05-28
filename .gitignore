@@ -17,3 +17,6 @@
 .vscode/
 *.swp
 .DS_Store
+
+# Harness / local agent state
+.claude/
