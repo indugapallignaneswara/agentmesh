@@ -48,12 +48,20 @@ func run() error {
 	// Authoritative store.
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	st, err := store.NewPostgres(initCtx, cfg.DatabaseURL)
-	if err != nil {
-		return err
+	var st store.Store
+	switch cfg.Store {
+	case "memory":
+		st = store.NewMemory()
+		logger.Warn("using in-memory store; all state is lost on restart")
+	default:
+		pg, err := store.NewPostgres(initCtx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		st = pg
+		logger.Info("connected to postgres")
 	}
 	defer st.Close()
-	logger.Info("connected to postgres")
 
 	// Optional real-time bus.
 	var b bus.Bus = bus.NewNoop()

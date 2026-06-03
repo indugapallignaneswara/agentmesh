@@ -12,6 +12,10 @@ import (
 type Config struct {
 	// HTTPAddr is the listen address for the Streamable-HTTP MCP server.
 	HTTPAddr string
+	// Store selects the backing store: "postgres" (default, durable) or
+	// "memory" (ephemeral, zero-dependency — for demos, local trials, and the
+	// loopback validation). Memory state is lost on restart.
+	Store string
 	// DatabaseURL is the Postgres DSN (authoritative store).
 	DatabaseURL string
 	// NATSURL is the NATS server URL. When empty, a no-op bus is used.
@@ -27,10 +31,16 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr:    env("AGENTMESH_HTTP_ADDR", ":8080"),
+		Store:       env("AGENTMESH_STORE", "postgres"),
 		DatabaseURL: env("AGENTMESH_DATABASE_URL", "postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable"),
 		NATSURL:     env("AGENTMESH_NATS_URL", ""),
 		PresenceTTL: 60 * time.Second,
 		LogLevel:    env("AGENTMESH_LOG_LEVEL", "info"),
+	}
+	switch cfg.Store {
+	case "postgres", "memory":
+	default:
+		return Config{}, fmt.Errorf("AGENTMESH_STORE must be 'postgres' or 'memory', got %q", cfg.Store)
 	}
 	if v := os.Getenv("AGENTMESH_PRESENCE_TTL"); v != "" {
 		d, err := time.ParseDuration(v)
