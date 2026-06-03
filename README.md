@@ -103,10 +103,31 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `AGENTMESH_HTTP_ADDR` | `:8080` | HTTP listen address |
-| `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (required) |
+| `AGENTMESH_STORE` | `postgres` | `postgres` (durable) or `memory` (ephemeral, zero-dependency — for demos/trials) |
+| `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (used when store is `postgres`) |
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
 | `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
 | `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+
+### `coord` CLI & Claude Code integration
+
+`coord` (`cmd/coord`) is a thin CLI over the MCP endpoint — the fallback path
+for agents with weak/no MCP support and the engine behind session hooks:
+
+```bash
+go build -o ~/.local/bin/coord ./cmd/coord
+export AGENTMESH_ENDPOINT=http://localhost:8080/mcp AGENTMESH_WORKSPACE=team AGENTMESH_MEMBER=backend
+coord join --kind agent
+coord send --to frontend "please publish the API types"
+coord inbox          # consume-on-read; add --json for scripts
+coord broadcast "standup in 5"
+```
+
+To make a Claude Code session **pull** waiting messages automatically (MCP
+can't push mid-turn) and add an `/ask` command, see
+[`examples/claude/`](examples/claude/) — tracked templates for the inbox-pull
+hook and the slash command. Try the whole thing dependency-free with
+`AGENTMESH_STORE=memory`.
 
 ## Development
 
