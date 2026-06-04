@@ -140,6 +140,16 @@ make vet
 The store has two implementations — in-memory and Postgres — validated against
 **one shared contract suite** (`internal/storetest`) so they cannot drift.
 
+### Try it / validate
+
+```bash
+make demo   # one server + two simulated members on this host; asserts the
+            # Phase 0 metric (any-to-any + broadcast) with no external deps
+```
+
+For the real cross-machine, cross-vendor acceptance test (Claude Code on one
+machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md).
+
 ## Roadmap
 
 - **Phase 0 — core loop** ✅ presence, any-to-any inbox, broadcast, event log.

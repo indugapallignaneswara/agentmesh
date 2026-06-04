@@ -9,7 +9,7 @@ LDFLAGS   := -X main.version=$(VERSION)
 # Local Postgres used by integration tests (a throwaway database).
 TEST_DATABASE_URL ?= postgres://agentmesh:agentmesh@localhost:5432/agentmesh_test?sslmode=disable
 
-.PHONY: build run test test-integration vet fmt tidy up down clean
+.PHONY: build run test test-integration demo vet fmt tidy up down clean
 
 build: ## Compile the server binary
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/agentmesh
@@ -22,6 +22,9 @@ test: ## Run unit tests (hermetic; Postgres integration tests skip)
 
 test-integration: ## Run all tests including Postgres integration
 	AGENTMESH_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test -count=1 $(PKG)
+
+demo: ## Run the loopback Phase 0 simulation (no external deps)
+	./scripts/loopback-demo.sh
 
 vet: ## go vet
 	$(GO) vet $(PKG)
