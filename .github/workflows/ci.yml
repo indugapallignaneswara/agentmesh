@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Postgres service container for the store contract suite. The suite is
+    # gated on AGENTMESH_TEST_DATABASE_URL (it skips when empty), so this job
+    # sets it to make the integration tests actually run.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: agentmesh
+          POSTGRES_PASSWORD: agentmesh
+          POSTGRES_DB: agentmesh_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentmesh"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      AGENTMESH_TEST_DATABASE_URL: postgres://agentmesh:agentmesh@localhost:5432/agentmesh_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # -count=1 disables the test cache so the integration suite always runs
+      # against the fresh service container. -race catches data races in the
+      # concurrent service/store code.
+      - name: Test (unit + Postgres integration)
+        run: go test -race -count=1 ./...
+
+      # Fail loudly if the integration suite silently skipped (e.g. the env var
+      # got dropped) — otherwise "all green" could hide an unexercised store.
+      - name: Assert Postgres suite ran (did not skip)
+        run: |
+          out=$(go test -count=1 -run TestPostgresStore -v ./internal/store/ 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q -- '--- SKIP'; then
+            echo "::error::Postgres contract suite skipped — integration coverage missing"
+            exit 1
+          fi
+          echo "$out" | grep -q -- '--- PASS: TestPostgresStore' \
+            || { echo "::error::TestPostgresStore did not pass"; exit 1; }
