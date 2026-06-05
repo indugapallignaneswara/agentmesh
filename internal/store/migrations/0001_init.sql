@@ -11,8 +11,11 @@ CREATE TABLE IF NOT EXISTS members (
     PRIMARY KEY (workspace, name)
 );
 
+-- Message IDs are opaque caller-supplied strings (the service layer assigns a
+-- UUID, but the store contract treats the ID as an opaque token), so id is text
+-- rather than uuid.
 CREATE TABLE IF NOT EXISTS messages (
-    id         uuid        PRIMARY KEY,
+    id         text        PRIMARY KEY,
     workspace  text        NOT NULL,
     sender     text        NOT NULL,
     kind       text        NOT NULL,
@@ -23,7 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_workspace_created
     ON messages (workspace, created_at);
 
 CREATE TABLE IF NOT EXISTS deliveries (
-    message_id   uuid        NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+    message_id   text        NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
     workspace    text        NOT NULL,
     recipient    text        NOT NULL,
     delivered_at timestamptz,
