@@ -63,15 +63,19 @@ jobs:
       - name: Test (unit + Postgres integration)
         run: go test -race -count=1 ./...
 
-      # Fail loudly if the integration suite silently skipped (e.g. the env var
-      # got dropped) — otherwise "all green" could hide an unexercised store.
-      - name: Assert Postgres suite ran (did not skip)
+      # Fail loudly if the Postgres-gated tests silently skipped (e.g. the env
+      # var got dropped) — otherwise "all green" could hide unexercised code.
+      # Both the contract suite AND the concurrency test (the Phase 1
+      # no-double-claim acceptance criterion) must actually run and pass.
+      - name: Assert Postgres suites ran (did not skip)
         run: |
-          out=$(go test -count=1 -run TestPostgresStore -v ./internal/store/ 2>&1)
+          out=$(go test -count=1 -v -run 'TestPostgresStore|TestPostgresConcurrentClaimNoDuplicates' ./internal/store/ 2>&1)
           echo "$out"
           if echo "$out" | grep -q -- '--- SKIP'; then
-            echo "::error::Postgres contract suite skipped — integration coverage missing"
+            echo "::error::A Postgres-gated test skipped — integration coverage missing"
             exit 1
           fi
-          echo "$out" | grep -q -- '--- PASS: TestPostgresStore' \
-            || { echo "::error::TestPostgresStore did not pass"; exit 1; }
+          for tt in TestPostgresStore TestPostgresConcurrentClaimNoDuplicates; do
+            echo "$out" | grep -q -- "--- PASS: $tt" \
+              || { echo "::error::$tt did not pass"; exit 1; }
+          done
