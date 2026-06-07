@@ -91,6 +91,8 @@ dispatch:
 		return cmdPublish(ctx, cl, out, rest)
 	case "subscribe":
 		return cmdSubscribe(ctx, cl, out, rest)
+	case "task":
+		return cmdTask(ctx, cl, out, rest)
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", cmd)
@@ -122,6 +124,7 @@ Commands:
   broadcast  Send a message to all other members
   publish    Append an event to the observation log
   subscribe  Read events after a cursor
+  task       Shared task board: task create|claim|complete|get|list
 
 Global flags:
   --endpoint URL   MCP endpoint (env AGENTMESH_ENDPOINT, default `+defaultEndpoint+`)

@@ -49,6 +49,31 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 		Name:        "subscribe",
 		Description: "Read events from the observation log after a cursor. Returns the events and the next cursor to poll with. Pull-based: call repeatedly to follow the log.",
 	}, subscribeHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "create_task",
+		Description: "Add a task to the shared task board. Optionally depends_on other task ids (which must exist in this workspace); a task is only claimable once all its dependencies are completed.",
+	}, createTaskHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "claim_task",
+		Description: "Atomically claim the next eligible task (oldest first, dependencies completed) for an agent. No two agents ever claim the same task. The claim holds a lease; if the agent dies without completing, the task returns to the pool. Returns claimable=false when nothing is available.",
+	}, claimTaskHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "complete_task",
+		Description: "Mark a claimed task completed (or failed, with done=false). Only the current assignee may complete it; if the lease lapsed and another agent took over, this is rejected.",
+	}, completeTaskHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_task",
+		Description: "Fetch a single task by id, including its status, assignee and dependencies.",
+	}, getTaskHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_tasks",
+		Description: "List the workspace's tasks, optionally filtered by status (pending, claimed, completed, failed). A claimed task whose lease has expired is reported as pending.",
+	}, listTasksHandler(svc))
 }
 
 // --- tool argument and result types ---

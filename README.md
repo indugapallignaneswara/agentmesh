@@ -71,6 +71,10 @@ trade-off.
 | `broadcast` | Fan a message out to all other members |
 | `publish_event` | Append a typed event to the observation log |
 | `subscribe` | Read events after a cursor (returns the next cursor) |
+| `create_task` | Add a task to the shared board (optional `depends_on`) |
+| `claim_task` | Atomically claim the next eligible task (no double-claim) |
+| `complete_task` | Mark a claimed task completed/failed (assignee only) |
+| `get_task` / `list_tasks` | Inspect tasks (filter by status) |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so
@@ -107,6 +111,7 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 | `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (used when store is `postgres`) |
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
 | `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
+| `AGENTMESH_TASK_LEASE` | `5m` | How long a task claim is held before another agent can steal it |
 | `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 
 ### `coord` CLI & Claude Code integration
@@ -153,8 +158,9 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
 ## Roadmap
 
 - **Phase 0 — core loop** ✅ presence, any-to-any inbox, broadcast, event log.
-- **Phase 1 — shared task state**: task table with `SELECT … FOR UPDATE SKIP
-  LOCKED` claiming + leases (no duplicated work; crashed-agent work-stealing).
+- **Phase 1 — shared task state** ✅ task board with dependency-gated
+  `SELECT … FOR UPDATE SKIP LOCKED` claiming + leases (no duplicated work;
+  crashed-agent work-stealing). Verified under concurrent Postgres.
 - **Phase 2 — shared semantic memory**: pgvector, per-agent + shared
   namespaces, provenance, and a review/quarantine queue for shared writes.
 - **Phase 3 — co-edited artifacts + UI**: Yjs task board / design notes;

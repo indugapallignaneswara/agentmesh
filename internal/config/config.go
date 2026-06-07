@@ -23,6 +23,9 @@ type Config struct {
 	// PresenceTTL is how recently a member must have been seen to be listed as
 	// present.
 	PresenceTTL time.Duration
+	// TaskLease is how long a task claim is held before another agent may steal
+	// it (work-stealing on a dead assignee).
+	TaskLease time.Duration
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 }
@@ -35,6 +38,7 @@ func Load() (Config, error) {
 		DatabaseURL: env("AGENTMESH_DATABASE_URL", "postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable"),
 		NATSURL:     env("AGENTMESH_NATS_URL", ""),
 		PresenceTTL: 60 * time.Second,
+		TaskLease:   5 * time.Minute,
 		LogLevel:    env("AGENTMESH_LOG_LEVEL", "info"),
 	}
 	switch cfg.Store {
@@ -48,6 +52,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("AGENTMESH_PRESENCE_TTL: %w", err)
 		}
 		cfg.PresenceTTL = d
+	}
+	if v := os.Getenv("AGENTMESH_TASK_LEASE"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("AGENTMESH_TASK_LEASE: %w", err)
+		}
+		cfg.TaskLease = d
 	}
 	return cfg, nil
 }

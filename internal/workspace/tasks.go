@@ -1,0 +1,142 @@
+package workspace
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/indugapallignaneswara/agentmesh/internal/model"
+	"github.com/indugapallignaneswara/agentmesh/internal/store"
+)
+
+// CreateTask adds a task to the shared board. The creator must be a member; the
+// title is required; dependencies (if any) must reference existing tasks in the
+// same workspace (the store rejects dangling ids). Returns the stored task.
+func (s *Service) CreateTask(ctx context.Context, workspace, creator, title, details string, dependsOn []string) (model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return model.Task{}, err
+	}
+	if err := validName("creator", creator); err != nil {
+		return model.Task{}, err
+	}
+	if title == "" || len(title) > maxTaskTitle {
+		return model.Task{}, fmt.Errorf("%w: title must be 1-%d characters", ErrInvalidInput, maxTaskTitle)
+	}
+	if len(dependsOn) > maxDependsOn {
+		return model.Task{}, fmt.Errorf("%w: at most %d dependencies", ErrInvalidInput, maxDependsOn)
+	}
+	if err := s.requireMember(ctx, workspace, creator); err != nil {
+		return model.Task{}, err
+	}
+
+	now := s.now()
+	t := model.Task{
+		ID:        s.newID(),
+		Workspace: workspace,
+		Title:     title,
+		Details:   details,
+		Status:    model.TaskPending,
+		CreatedBy: creator,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	created, err := s.store.CreateTask(ctx, t, dependsOn)
+	if err != nil {
+		return model.Task{}, mapTaskErr(err)
+	}
+	s.touch(ctx, workspace, creator)
+	s.appendEvent(ctx, workspace, creator, EventTaskCreated, map[string]any{
+		"task_id": created.ID, "title": title, "depends_on": dependsOn,
+	})
+	return created, nil
+}
+
+// ClaimTask claims the next eligible task for agent (oldest-first; dependencies
+// completed). Returns store.ErrNoClaimableTask wrapped as ErrInvalidInput-free
+// sentinel when nothing is available, so callers can distinguish "empty" from
+// real failures.
+func (s *Service) ClaimTask(ctx context.Context, workspace, agent string) (model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return model.Task{}, err
+	}
+	if err := validName("agent", agent); err != nil {
+		return model.Task{}, err
+	}
+	if err := s.requireMember(ctx, workspace, agent); err != nil {
+		return model.Task{}, err
+	}
+	t, err := s.store.ClaimNextTask(ctx, workspace, agent, s.now(), s.taskLease)
+	if err != nil {
+		return model.Task{}, err // ErrNoClaimableTask passes through untouched
+	}
+	s.touch(ctx, workspace, agent)
+	s.appendEvent(ctx, workspace, agent, EventTaskClaimed, map[string]any{
+		"task_id": t.ID, "lease_expires_at": t.LeaseExpiresAt,
+	})
+	return t, nil
+}
+
+// CompleteTask marks a claimed task completed or failed. The caller must be the
+// current assignee and the task still claimed (a lapsed lease that another
+// agent stole yields ErrTaskConflict). done=false records a failure.
+func (s *Service) CompleteTask(ctx context.Context, workspace, id, agent, result string, done bool) (model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return model.Task{}, err
+	}
+	if err := validName("agent", agent); err != nil {
+		return model.Task{}, err
+	}
+	if id == "" {
+		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
+	}
+	status := model.TaskCompleted
+	if !done {
+		status = model.TaskFailed
+	}
+	t, err := s.store.CompleteTask(ctx, workspace, id, agent, status, result, s.now())
+	if err != nil {
+		return model.Task{}, err // ErrNotFound / ErrTaskConflict pass through
+	}
+	s.touch(ctx, workspace, agent)
+	s.appendEvent(ctx, workspace, agent, EventTaskCompleted, map[string]any{
+		"task_id": id, "status": status,
+	})
+	return t, nil
+}
+
+// GetTask returns a single task or store.ErrNotFound.
+func (s *Service) GetTask(ctx context.Context, workspace, id string) (model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return model.Task{}, err
+	}
+	if id == "" {
+		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
+	}
+	return s.store.GetTask(ctx, workspace, id)
+}
+
+// ListTasks returns a workspace's tasks, optionally filtered to the given
+// statuses. Reported status is effective (a claimed task past its lease shows as
+// pending).
+func (s *Service) ListTasks(ctx context.Context, workspace string, statuses []model.TaskStatus) ([]model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return nil, err
+	}
+	for _, st := range statuses {
+		switch st {
+		case model.TaskPending, model.TaskClaimed, model.TaskCompleted, model.TaskFailed:
+		default:
+			return nil, fmt.Errorf("%w: unknown status %q", ErrInvalidInput, st)
+		}
+	}
+	return s.store.ListTasks(ctx, workspace, statuses, s.now())
+}
+
+// mapTaskErr converts a store dependency error into an ErrInvalidInput so the
+// transport layer reports it as a client error the agent can fix.
+func mapTaskErr(err error) error {
+	if errors.Is(err, store.ErrInvalidDependency) {
+		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	return err
+}

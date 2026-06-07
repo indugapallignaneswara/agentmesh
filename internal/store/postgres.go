@@ -215,12 +215,12 @@ func (s *Postgres) Close() error {
 	return nil
 }
 
-// TruncateAll removes all coordination data (members, messages, deliveries,
-// events) while leaving the schema and migration history intact. It exists for
-// integration tests that require an empty store between cases.
+// TruncateAll removes all coordination data while leaving the schema and
+// migration history intact. It exists for integration tests that require an
+// empty store between cases.
 func (s *Postgres) TruncateAll(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx,
-		`TRUNCATE deliveries, messages, members, events RESTART IDENTITY`)
+		`TRUNCATE task_deps, tasks, deliveries, messages, members, events RESTART IDENTITY`)
 	return err
 }
 

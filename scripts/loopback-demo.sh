@@ -95,9 +95,30 @@ echo "==> Test 6: observation log reflects the activity"
 events=$(AGENTMESH_MEMBER="$HUMAN" "$COORD" --json subscribe --since 0 | grep -c '"type"' || true)
 [ "$events" -ge 5 ] && pass "event log has $events entries" || fail "expected >=5 events, got $events"
 
+# --- Phase 1: shared task board ---
+
+echo "==> Test 7: shared task board — dependency-gated claiming, no double-claim"
+# Create "build", then "deploy" depending on it.
+t1=$(AGENTMESH_MEMBER="$HUMAN" "$COORD" --json task create --title "build" \
+  | grep -o '"id": *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+AGENTMESH_MEMBER="$HUMAN" "$COORD" task create --title "deploy" --depends-on "$t1" >/dev/null
+
+# $A claims: must get "build" (deploy is blocked).
+claimA=$(AGENTMESH_MEMBER="$A" "$COORD" task claim)
+echo "$claimA" | grep -q "build" && pass "$A claimed the unblocked task (build)" || fail "$A claim: $claimA"
+
+# $B claims: nothing, because deploy is still blocked by build.
+claimB=$(AGENTMESH_MEMBER="$B" "$COORD" task claim)
+echo "$claimB" | grep -q "no claimable task" && pass "$B correctly got nothing (deploy blocked)" || fail "$B claim: $claimB"
+
+# $A completes build -> deploy becomes claimable.
+AGENTMESH_MEMBER="$A" "$COORD" task complete --id "$t1" --result "built" >/dev/null
+claimB2=$(AGENTMESH_MEMBER="$B" "$COORD" task claim)
+echo "$claimB2" | grep -q "deploy" && pass "$B claimed deploy after its dependency completed" || fail "$B second claim: $claimB2"
+
 echo
 if [ "$FAILED" -eq 0 ]; then
-  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0 metric on one host.\n'
+  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0 + Phase 1 metrics on one host.\n'
   printf 'For the real cross-machine / cross-vendor test, see docs/validation.md.\n'
 else
   printf '\033[31mSome checks failed.\033[0m See output above.\n'

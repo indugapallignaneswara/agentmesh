@@ -79,6 +79,7 @@ func run() error {
 
 	svc := workspace.New(st, b,
 		workspace.WithPresenceTTL(cfg.PresenceTTL),
+		workspace.WithTaskLease(cfg.TaskLease),
 		workspace.WithLogger(logger),
 	)
 

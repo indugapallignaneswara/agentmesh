@@ -19,6 +19,16 @@ type Memory struct {
 	deliv    []memDelivery
 	events   []model.Event
 	seq      int64
+	tasks    []memTask // insertion order preserved for oldest-first claiming
+}
+
+// memTask holds a task plus its dependency ids. The single Memory.mu serialises
+// all task operations, which gives the correct no-double-claim behaviour for a
+// single process. The cross-process guarantee is the Postgres store's job
+// (FOR UPDATE SKIP LOCKED) and is validated there under real concurrency.
+type memTask struct {
+	task model.Task
+	deps []string
 }
 
 type memMessage struct {

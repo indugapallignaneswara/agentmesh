@@ -17,6 +17,21 @@ import (
 // a constraint violation.
 var ErrNotFound = errors.New("not found")
 
+// Task-related sentinel errors.
+var (
+	// ErrInvalidDependency is returned by CreateTask when a dependency id does
+	// not reference an existing task in the same workspace.
+	ErrInvalidDependency = errors.New("invalid dependency")
+
+	// ErrNoClaimableTask is returned by ClaimNextTask when no eligible task is
+	// available to claim.
+	ErrNoClaimableTask = errors.New("no claimable task")
+
+	// ErrTaskConflict is returned by CompleteTask when the caller is not the
+	// current assignee or the task is no longer in the claimed state.
+	ErrTaskConflict = errors.New("task conflict")
+)
+
 // Store is the authoritative system of record for the workspace. All timestamps
 // and message IDs are supplied by the caller (the service layer) so behaviour is
 // deterministic and testable; the store assigns only the monotonic event Seq.
@@ -57,6 +72,37 @@ type Store interface {
 	// EventsSince returns events for a workspace with Seq strictly greater than
 	// sinceSeq, ordered by Seq ascending, capped at limit.
 	EventsSince(ctx context.Context, workspace string, sinceSeq int64, limit int) ([]model.Event, error)
+
+	// CreateTask persists a new task and its dependency edges atomically. The
+	// caller sets ID, timestamps and Status (pending). Every id in dependsOn
+	// must reference an existing task in the same workspace; otherwise the whole
+	// operation fails with ErrInvalidDependency and nothing is written.
+	CreateTask(ctx context.Context, t model.Task, dependsOn []string) (model.Task, error)
+
+	// GetTask returns a single task (with DependsOn populated) or ErrNotFound.
+	GetTask(ctx context.Context, workspace, id string) (model.Task, error)
+
+	// ListTasks returns a workspace's tasks ordered by CreatedAt. If statuses is
+	// non-empty, only tasks in those statuses are returned. The reported Status
+	// is the *effective* status: a claimed task whose lease has expired (as of
+	// now) is reported as pending, since it is once again claimable.
+	ListTasks(ctx context.Context, workspace string, statuses []model.TaskStatus, now time.Time) ([]model.Task, error)
+
+	// ClaimNextTask atomically claims one eligible task for agent and returns
+	// it. A task is eligible when it is pending (or claimed with a lease expired
+	// at or before now) and every dependency is completed. Eligible tasks are
+	// considered oldest-first. Claiming sets status=claimed, assigned_agent,
+	// claimed_at=now and lease_expires_at=now+lease. Concurrent callers never
+	// receive the same task (SELECT ... FOR UPDATE SKIP LOCKED). Returns
+	// ErrNoClaimableTask when nothing is eligible.
+	ClaimNextTask(ctx context.Context, workspace, agent string, now time.Time, lease time.Duration) (model.Task, error)
+
+	// CompleteTask transitions a claimed task to completed (or failed) with an
+	// optional result, but only if agent is still the assignee and the task is
+	// still in the claimed state. Returns ErrNotFound if the task is missing,
+	// or ErrTaskConflict if the caller is not the current assignee or the task
+	// is no longer claimed (e.g. its lease lapsed and another agent stole it).
+	CompleteTask(ctx context.Context, workspace, id, agent string, status model.TaskStatus, result string, now time.Time) (model.Task, error)
 
 	// Close releases any resources held by the store.
 	Close() error

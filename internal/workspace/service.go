@@ -27,9 +27,12 @@ var ErrInvalidInput = errors.New("invalid input")
 
 // Event type names recorded in the episodic log.
 const (
-	EventMemberJoined = "member_joined"
-	EventMessageSent  = "message_sent"
-	EventBroadcast    = "broadcast"
+	EventMemberJoined  = "member_joined"
+	EventMessageSent   = "message_sent"
+	EventBroadcast     = "broadcast"
+	EventTaskCreated   = "task_created"
+	EventTaskClaimed   = "task_claimed"
+	EventTaskCompleted = "task_completed"
 )
 
 // nameRe constrains workspace and member identifiers. They double as NATS
@@ -41,6 +44,9 @@ const (
 	defaultPresenceTTL = 60 * time.Second
 	defaultEventLimit  = 100
 	maxEventLimit      = 1000
+	defaultTaskLease   = 5 * time.Minute
+	maxTaskTitle       = 512
+	maxDependsOn       = 64
 )
 
 // Service is the coordination workspace API.
@@ -50,6 +56,7 @@ type Service struct {
 	now         func() time.Time
 	newID       func() string
 	presenceTTL time.Duration
+	taskLease   time.Duration
 	log         *slog.Logger
 }
 
@@ -69,6 +76,10 @@ func WithPresenceTTL(d time.Duration) Option { return func(s *Service) { s.prese
 // WithLogger sets the logger used for best-effort failures (e.g. bus publish).
 func WithLogger(l *slog.Logger) Option { return func(s *Service) { s.log = l } }
 
+// WithTaskLease sets how long a task claim is held before it can be stolen by
+// another agent (work-stealing on a dead assignee).
+func WithTaskLease(d time.Duration) Option { return func(s *Service) { s.taskLease = d } }
+
 // New constructs a Service over the given store and bus.
 func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 	s := &Service{
@@ -77,6 +88,7 @@ func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 		now:         time.Now,
 		newID:       func() string { return uuid.NewString() },
 		presenceTTL: defaultPresenceTTL,
+		taskLease:   defaultTaskLease,
 		log:         slog.Default(),
 	}
 	for _, o := range opts {

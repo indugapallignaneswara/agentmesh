@@ -54,6 +54,45 @@ type Message struct {
 	CreatedAt time.Time   `json:"created_at"`
 }
 
+// TaskStatus is the lifecycle state of a shared task.
+//
+//	pending   -> claimed             (an agent claims an eligible task)
+//	claimed   -> completed | failed  (the assignee finishes it)
+//	claimed   -> pending             (lease expired; reclaimed by another agent)
+type TaskStatus string
+
+const (
+	TaskPending   TaskStatus = "pending"
+	TaskClaimed   TaskStatus = "claimed"
+	TaskCompleted TaskStatus = "completed"
+	TaskFailed    TaskStatus = "failed"
+)
+
+// Terminal reports whether the status is an end state.
+func (s TaskStatus) Terminal() bool { return s == TaskCompleted || s == TaskFailed }
+
+// Task is a unit of work on the shared task board. Tasks decouple "what needs
+// doing" from "who does it": any agent may claim an eligible (pending, all
+// dependencies completed) task, and SKIP LOCKED claiming guarantees no two
+// agents claim the same one. A claim carries a lease (LeaseExpiresAt); if the
+// assignee dies without completing, the lease lapses and the task becomes
+// claimable again (work-stealing).
+type Task struct {
+	ID             string     `json:"id"`
+	Workspace      string     `json:"workspace"`
+	Title          string     `json:"title"`
+	Details        string     `json:"details,omitempty"`
+	Status         TaskStatus `json:"status"`
+	CreatedBy      string     `json:"created_by"`
+	AssignedAgent  string     `json:"assigned_agent,omitempty"`
+	DependsOn      []string   `json:"depends_on,omitempty"`
+	Result         string     `json:"result,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ClaimedAt      *time.Time `json:"claimed_at,omitempty"`
+	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
+}
+
 // Event is an entry in the append-only episodic log. Events are the observation
 // path (read via subscribe with a monotonic cursor) and are intentionally
 // independent of inbox delivery: an event may reference a message but the
