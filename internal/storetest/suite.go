@@ -47,6 +47,12 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("TaskLeaseExpiryWorkStealing", func(t *testing.T) { testTaskLeaseExpiry(t, newStore(t)) })
 	t.Run("TaskNoClaimableWhenEmpty", func(t *testing.T) { testTaskNoClaimable(t, newStore(t)) })
 	t.Run("TaskListByStatus", func(t *testing.T) { testTaskListByStatus(t, newStore(t)) })
+
+	t.Run("MemoryCreateGet", func(t *testing.T) { testMemoryCreateGet(t, newStore(t)) })
+	t.Run("MemorySearchVisibility", func(t *testing.T) { testMemorySearchVisibility(t, newStore(t)) })
+	t.Run("MemorySearchRankAndLimit", func(t *testing.T) { testMemorySearchRankAndLimit(t, newStore(t)) })
+	t.Run("MemoryReviewApprove", func(t *testing.T) { testMemoryReviewApprove(t, newStore(t)) })
+	t.Run("MemoryReviewRejectAndConflicts", func(t *testing.T) { testMemoryReviewRejectAndConflicts(t, newStore(t)) })
 }
 
 func testUpsert(t *testing.T, s store.Store) {

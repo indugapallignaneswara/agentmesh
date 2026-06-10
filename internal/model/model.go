@@ -93,6 +93,49 @@ type Task struct {
 	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
 }
 
+// MemoryScope partitions the memory store. Private memories belong to one
+// member and are visible only to it; shared memories are visible to the whole
+// workspace — but only after passing the review queue.
+type MemoryScope string
+
+const (
+	MemoryPrivate MemoryScope = "private"
+	MemoryShared  MemoryScope = "shared"
+)
+
+// MemoryStatus is the review state of a memory item. Private writes are
+// approved immediately; shared writes start pending and require an approval
+// (by a human reviewer) before they become retrievable. This quarantine is the
+// core defense against shared-memory poisoning: no agent can silently plant
+// instructions that other agents will later retrieve.
+type MemoryStatus string
+
+const (
+	MemoryApproved MemoryStatus = "approved"
+	MemoryPending  MemoryStatus = "pending"
+	MemoryRejected MemoryStatus = "rejected"
+)
+
+// Memory is one item of durable knowledge with full provenance. Owner is the
+// owning member for private items and empty for shared ones. CreatedBy,
+// Source, CreatedAt record where the fact came from; ReviewedBy/ReviewedAt/
+// ReviewNote record the review decision for shared items.
+type Memory struct {
+	ID         string       `json:"id"`
+	Workspace  string       `json:"workspace"`
+	Scope      MemoryScope  `json:"scope"`
+	Owner      string       `json:"owner,omitempty"`
+	Status     MemoryStatus `json:"status"`
+	Content    string       `json:"content"`
+	Source     string       `json:"source,omitempty"`
+	CreatedBy  string       `json:"created_by"`
+	ReviewedBy string       `json:"reviewed_by,omitempty"`
+	ReviewNote string       `json:"review_note,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	ReviewedAt *time.Time   `json:"reviewed_at,omitempty"`
+}
+
 // Event is an entry in the append-only episodic log. Events are the observation
 // path (read via subscribe with a monotonic cursor) and are intentionally
 // independent of inbox delivery: an event may reference a message but the

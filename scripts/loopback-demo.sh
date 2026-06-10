@@ -116,9 +116,27 @@ AGENTMESH_MEMBER="$A" "$COORD" task complete --id "$t1" --result "built" >/dev/n
 claimB2=$(AGENTMESH_MEMBER="$B" "$COORD" task claim)
 echo "$claimB2" | grep -q "deploy" && pass "$B claimed deploy after its dependency completed" || fail "$B second claim: $claimB2"
 
+# --- Phase 2: shared memory with review quarantine ---
+
+echo "==> Test 8: shared memory — quarantine, human review, cross-agent recall"
+# $A submits shared knowledge; it must be invisible until a human approves.
+AGENTMESH_MEMBER="$A" "$COORD" memory write --scope shared --source "retro" \
+  "rollbacks require the canary gate" >/dev/null
+preB=$(AGENTMESH_MEMBER="$B" "$COORD" memory search canary gate)
+echo "$preB" | grep -q "no matching" && pass "pending shared memory is quarantined from $B" || fail "quarantine leak: $preB"
+
+# Agents cannot review; the human approves.
+AGENTMESH_MEMBER="$B" "$COORD" memory queue >/dev/null 2>&1 \
+  && fail "$B (agent) could read the review queue" || pass "review queue denied to agents"
+mid=$(AGENTMESH_MEMBER="$HUMAN" "$COORD" --json memory queue \
+  | grep -o '"id": *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+AGENTMESH_MEMBER="$HUMAN" "$COORD" memory approve --id "$mid" --note "checked" >/dev/null
+postB=$(AGENTMESH_MEMBER="$B" "$COORD" memory search canary gate)
+echo "$postB" | grep -q "canary gate" && pass "$B retrieves $A's knowledge after human approval" || fail "recall failed: $postB"
+
 echo
 if [ "$FAILED" -eq 0 ]; then
-  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0 + Phase 1 metrics on one host.\n'
+  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0-2 metrics on one host.\n'
   printf 'For the real cross-machine / cross-vendor test, see docs/validation.md.\n'
 else
   printf '\033[31mSome checks failed.\033[0m See output above.\n'

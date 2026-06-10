@@ -20,6 +20,7 @@ type Memory struct {
 	events   []model.Event
 	seq      int64
 	tasks    []memTask // insertion order preserved for oldest-first claiming
+	mems     []model.Memory
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises

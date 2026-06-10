@@ -74,6 +74,8 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 		Name:        "list_tasks",
 		Description: "List the workspace's tasks, optionally filtered by status (pending, claimed, completed, failed). A claimed task whose lease has expired is reported as pending.",
 	}, listTasksHandler(svc))
+
+	registerMemoryTools(s, svc)
 }
 
 // --- tool argument and result types ---

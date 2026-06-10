@@ -93,6 +93,8 @@ dispatch:
 		return cmdSubscribe(ctx, cl, out, rest)
 	case "task":
 		return cmdTask(ctx, cl, out, rest)
+	case "memory":
+		return cmdMemory(ctx, cl, out, rest)
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", cmd)
@@ -125,6 +127,7 @@ Commands:
   publish    Append an event to the observation log
   subscribe  Read events after a cursor
   task       Shared task board: task create|claim|complete|get|list
+  memory     Shared memory: memory write|search|queue|approve|reject
 
 Global flags:
   --endpoint URL   MCP endpoint (env AGENTMESH_ENDPOINT, default `+defaultEndpoint+`)

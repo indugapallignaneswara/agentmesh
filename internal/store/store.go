@@ -30,6 +30,10 @@ var (
 	// ErrTaskConflict is returned by CompleteTask when the caller is not the
 	// current assignee or the task is no longer in the claimed state.
 	ErrTaskConflict = errors.New("task conflict")
+
+	// ErrMemoryConflict is returned by ReviewMemory when the item is not a
+	// shared, still-pending memory (already reviewed, or private).
+	ErrMemoryConflict = errors.New("memory review conflict")
 )
 
 // Store is the authoritative system of record for the workspace. All timestamps
@@ -103,6 +107,30 @@ type Store interface {
 	// or ErrTaskConflict if the caller is not the current assignee or the task
 	// is no longer claimed (e.g. its lease lapsed and another agent stole it).
 	CompleteTask(ctx context.Context, workspace, id, agent string, status model.TaskStatus, result string, now time.Time) (model.Task, error)
+
+	// CreateMemory persists a memory item. The caller (service layer) sets ID,
+	// scope/owner/status and timestamps.
+	CreateMemory(ctx context.Context, m model.Memory) (model.Memory, error)
+
+	// GetMemory returns a single memory item or ErrNotFound. Access control is
+	// the service layer's job; the store returns the raw record.
+	GetMemory(ctx context.Context, workspace, id string) (model.Memory, error)
+
+	// SearchMemories returns the memories visible to requester that match the
+	// full-text query, best match first, capped at limit. Visibility is the
+	// canonical predicate: (private AND owner = requester) OR (shared AND
+	// status = approved). Pending and rejected shared items are never returned.
+	SearchMemories(ctx context.Context, workspace, requester, query string, limit int) ([]model.Memory, error)
+
+	// ListPendingShared returns the review queue: shared memories still
+	// pending, oldest first.
+	ListPendingShared(ctx context.Context, workspace string) ([]model.Memory, error)
+
+	// ReviewMemory approves or rejects a pending shared memory, recording the
+	// reviewer, note and time. Returns ErrNotFound if the item is missing, or
+	// ErrMemoryConflict if it is not a shared, still-pending item (the service
+	// layer enforces who may review).
+	ReviewMemory(ctx context.Context, workspace, id, reviewer string, approve bool, note string, now time.Time) (model.Memory, error)
 
 	// Close releases any resources held by the store.
 	Close() error

@@ -75,6 +75,9 @@ trade-off.
 | `claim_task` | Atomically claim the next eligible task (no double-claim) |
 | `complete_task` | Mark a claimed task completed/failed (assignee only) |
 | `get_task` / `list_tasks` | Inspect tasks (filter by status) |
+| `memory_write` | Store knowledge with provenance — `private` (immediate, own-eyes-only) or `shared` (review-gated) |
+| `memory_search` | Ranked full-text search over your private + approved shared memories |
+| `memory_queue` / `memory_review` | Human-only: inspect and approve/reject pending shared submissions |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so
@@ -161,8 +164,12 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
 - **Phase 1 — shared task state** ✅ task board with dependency-gated
   `SELECT … FOR UPDATE SKIP LOCKED` claiming + leases (no duplicated work;
   crashed-agent work-stealing). Verified under concurrent Postgres.
-- **Phase 2 — shared semantic memory**: pgvector, per-agent + shared
-  namespaces, provenance, and a review/quarantine queue for shared writes.
+- **Phase 2 — shared memory** ✅ per-agent private + shared namespaces
+  (strictly partitioned), provenance on every item, and a human review/
+  quarantine queue for shared writes — no agent can publish shared memory
+  directly (the anti-poisoning defense). Search is ranked Postgres full-text
+  today; the schema and `memory_search` contract are vector-ready, so a
+  pgvector embedder can be added without changing the tools.
 - **Phase 3 — co-edited artifacts + UI**: Yjs task board / design notes;
   Centrifugo-backed presence dashboard.
 - **Phase 4 — hardening & interop**: A2A Agent Cards, CLI fallback, trust
