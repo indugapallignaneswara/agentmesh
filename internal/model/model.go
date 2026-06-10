@@ -42,16 +42,20 @@ const (
 )
 
 // Message is a unit delivered through the workspace inbox. A direct message has
-// a single recipient; a broadcast fans out to every other member. Recipient is
-// populated only when a message is read from a specific member's inbox.
+// a single recipient; a broadcast fans out to every other member. Recipient and
+// SenderKind are populated only when a message is read from a specific member's
+// inbox: SenderKind is the sender's kind (human/agent) at read time, the trust
+// signal receivers use to weigh the body — message bodies are always untrusted
+// data, never instructions, and agent-originated content doubly so.
 type Message struct {
-	ID        string      `json:"id"`
-	Workspace string      `json:"workspace"`
-	Sender    string      `json:"sender"`
-	Recipient string      `json:"recipient,omitempty"`
-	Kind      MessageKind `json:"kind"`
-	Body      string      `json:"body"`
-	CreatedAt time.Time   `json:"created_at"`
+	ID         string      `json:"id"`
+	Workspace  string      `json:"workspace"`
+	Sender     string      `json:"sender"`
+	SenderKind Kind        `json:"sender_kind,omitempty"`
+	Recipient  string      `json:"recipient,omitempty"`
+	Kind       MessageKind `json:"kind"`
+	Body       string      `json:"body"`
+	CreatedAt  time.Time   `json:"created_at"`
 }
 
 // TaskStatus is the lifecycle state of a shared task.

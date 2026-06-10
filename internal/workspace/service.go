@@ -258,6 +258,21 @@ func (s *Service) ReadInbox(ctx context.Context, workspace, member string) ([]mo
 	if err != nil {
 		return nil, err
 	}
+	// Annotate each message with the sender's kind (human/agent) as a trust
+	// signal for the receiver — the LLM-tagging defense: receivers treat
+	// bodies as data, and the tag says who the data came from. Best-effort: a
+	// sender removed since writing simply yields no kind.
+	kinds := make(map[string]model.Kind)
+	for i := range msgs {
+		k, ok := kinds[msgs[i].Sender]
+		if !ok {
+			if m, err := s.store.GetMember(ctx, workspace, msgs[i].Sender); err == nil {
+				k = m.Kind
+			}
+			kinds[msgs[i].Sender] = k
+		}
+		msgs[i].SenderKind = k
+	}
 	s.touch(ctx, workspace, member)
 	return msgs, nil
 }

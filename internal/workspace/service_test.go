@@ -134,6 +134,41 @@ func TestSendMessageDelivery(t *testing.T) {
 	}
 }
 
+// TestInboxSenderKindTagging verifies the LLM-tagging trust signal: delivered
+// messages carry the sender's kind so receivers can weigh agent-originated
+// content differently from human-originated content.
+func TestInboxSenderKindTagging(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := context.Background()
+	mustJoin(t, svc, "ws", "receiver")
+	mustJoin(t, svc, "ws", "robot")
+	if _, err := svc.Join(ctx, "ws", "human-lead", model.KindHuman, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.SendMessage(ctx, "ws", "robot", "receiver", "from an agent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SendMessage(ctx, "ws", "human-lead", "receiver", "from a human"); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := svc.ReadInbox(ctx, "ws", "receiver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("inbox = %d msgs, want 2", len(msgs))
+	}
+	kinds := map[string]model.Kind{}
+	for _, m := range msgs {
+		kinds[m.Sender] = m.SenderKind
+	}
+	if kinds["robot"] != model.KindAgent || kinds["human-lead"] != model.KindHuman {
+		t.Fatalf("sender kinds = %v, want robot=agent human-lead=human", kinds)
+	}
+}
+
 func TestSendMessageUnknownMember(t *testing.T) {
 	svc, _ := newService(t)
 	ctx := context.Background()
