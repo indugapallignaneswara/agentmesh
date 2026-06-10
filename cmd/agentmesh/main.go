@@ -18,6 +18,7 @@ import (
 	"github.com/indugapallignaneswara/agentmesh/internal/bus"
 	"github.com/indugapallignaneswara/agentmesh/internal/config"
 	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
+	"github.com/indugapallignaneswara/agentmesh/internal/discovery"
 	"github.com/indugapallignaneswara/agentmesh/internal/mcpserver"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
@@ -103,6 +104,7 @@ func run() error {
 	mux.Handle("/mcp", mcpserver.Handler(svc, version))
 	mux.Handle("/ui", dashboard.Handler(svc))
 	mux.Handle("/ui/", dashboard.Handler(svc))
+	mux.Handle(discovery.WellKnownPath, discovery.Handler(version, cfg.Auth))
 
 	// Authentication: in token mode every endpoint except the health check and
 	// the dashboard shell page requires a bearer token; the page itself is an
@@ -110,7 +112,9 @@ func run() error {
 	var handler http.Handler = mux
 	if cfg.Auth == "token" {
 		authn := &auth.TokenAuthenticator{Store: st}
-		handler = auth.Middleware(authn, "/healthz", "/ui")(mux)
+		// The agent card stays open: it is how clients discover the security
+		// scheme in the first place.
+		handler = auth.Middleware(authn, "/healthz", "/ui", discovery.WellKnownPath)(mux)
 		logger.Info("authentication enabled", "mode", "token")
 	} else {
 		logger.Warn("authentication is OFF; anyone who can reach this address can join — use only on a trusted network")

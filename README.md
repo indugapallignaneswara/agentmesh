@@ -95,6 +95,7 @@ AGENTMESH_DATABASE_URL='postgres://agentmesh:agentmesh@localhost:5432/agentmesh?
 AGENTMESH_NATS_URL='nats://localhost:4222' \
 make run
 # MCP endpoint: http://localhost:8080/mcp   health: /healthz   dashboard: /ui
+# A2A agent card: /.well-known/agent-card.json
 ```
 
 Register it with an agent (Claude Code):
@@ -207,12 +208,15 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
   served by the same binary, zero extra infrastructure. Yjs CRDTs and
   Centrifugo remain the documented upgrade path if offline/peer editing or
   websocket-scale fan-out is ever needed.
-- **Phase 4 — hardening & interop** (in progress): ✅ bearer-token
-  authentication with per-principal identity enforcement (anti-spoofing,
-  kind/workspace binding, immediate revocation; `auth.Authenticator` is the
-  seam for OAuth 2.1/OIDC per the MCP authorization spec). Remaining: A2A
-  Agent Cards, trust scoring / injection defenses, optional Temporal +
-  cross-node federation.
+- **Phase 4 — hardening & interop** ✅ bearer-token authentication with
+  per-principal identity enforcement (anti-spoofing, kind/workspace binding,
+  immediate revocation; `auth.Authenticator` is the seam for OAuth 2.1/OIDC
+  per the MCP authorization spec); untrusted-content tagging on inbox
+  delivery (`sender_kind` provenance, data-not-instructions framing); an A2A
+  Agent Card at `/.well-known/agent-card.json` (shape per the normative A2A
+  v1.0 proto, advertising the MCP interface and the bearer scheme); and the
+  NATS bus path proven by an embedded-server integration test. Deferred as
+  optional: Temporal durable orchestration, cross-node federation.
 
 ## License
 
