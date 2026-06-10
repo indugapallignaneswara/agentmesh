@@ -56,6 +56,10 @@ func RunSuite(t *testing.T, newStore Factory) {
 
 	t.Run("ArtifactCreateGetList", func(t *testing.T) { testArtifactCreateGetList(t, newStore(t)) })
 	t.Run("ArtifactOptimisticConcurrency", func(t *testing.T) { testArtifactOptimisticConcurrency(t, newStore(t)) })
+
+	t.Run("TokenCreateGetByHash", func(t *testing.T) { testTokenCreateGetByHash(t, newStore(t)) })
+	t.Run("TokenRevocation", func(t *testing.T) { testTokenRevocation(t, newStore(t)) })
+	t.Run("TokenExpiry", func(t *testing.T) { testTokenExpiry(t, newStore(t)) })
 }
 
 func testUpsert(t *testing.T, s store.Store) {

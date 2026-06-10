@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -16,16 +17,40 @@ import (
 // Client connects to an AgentMesh MCP endpoint.
 type Client struct {
 	endpoint string
+	token    string
 	impl     *mcp.Implementation
 }
 
+// Option configures a Client.
+type Option func(*Client)
+
+// WithToken attaches a bearer token (issued by `agentmesh token create`) to
+// every request — required when the server runs with AGENTMESH_AUTH=token.
+func WithToken(token string) Option { return func(c *Client) { c.token = token } }
+
 // New returns a Client targeting the given MCP endpoint URL (e.g.
 // http://localhost:8080/mcp).
-func New(endpoint string) *Client {
-	return &Client{
+func New(endpoint string, opts ...Option) *Client {
+	c := &Client{
 		endpoint: endpoint,
 		impl:     &mcp.Implementation{Name: "coord-cli", Version: "0.1.0"},
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
+}
+
+// bearerTransport injects the Authorization header on every request.
+type bearerTransport struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(clone)
 }
 
 // session dials the endpoint and completes the MCP handshake. The caller must
@@ -35,6 +60,11 @@ func (c *Client) session(ctx context.Context) (*mcp.ClientSession, error) {
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:             c.endpoint,
 		DisableStandaloneSSE: true,
+	}
+	if c.token != "" {
+		transport.HTTPClient = &http.Client{
+			Transport: &bearerTransport{token: c.token, base: http.DefaultTransport},
+		}
 	}
 	cs, err := mcp.NewClient(c.impl, nil).Connect(ctx, transport, nil)
 	if err != nil {

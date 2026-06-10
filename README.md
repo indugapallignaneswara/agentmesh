@@ -112,11 +112,40 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 |----------|---------|---------|
 | `AGENTMESH_HTTP_ADDR` | `:8080` | HTTP listen address |
 | `AGENTMESH_STORE` | `postgres` | `postgres` (durable) or `memory` (ephemeral, zero-dependency — for demos/trials) |
+| `AGENTMESH_AUTH` | `off` | `off` (trusted network only) or `token` (bearer tokens required; needs postgres) |
 | `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (used when store is `postgres`) |
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
 | `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
 | `AGENTMESH_TASK_LEASE` | `5m` | How long a task claim is held before another agent can steal it |
 | `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+
+### Authentication
+
+`AGENTMESH_AUTH=token` gates `/mcp` and `/ui/api` behind bearer tokens (401 +
+`WWW-Authenticate` otherwise; `/healthz` and the `/ui` shell stay open). Each
+token binds a credential to one principal — workspace + member + kind — and
+with auth on a credential can **only act as itself**: no actor spoofing, no
+reading another member's inbox, no agent token joining as a `human` (which
+would grant memory-review authority), no crossing workspaces. Tokens are
+stored as SHA-256 hashes, support optional TTLs, and revocation is immediate.
+
+```bash
+# issue / inspect / revoke (admin CLI, talks straight to Postgres)
+agentmesh token create --workspace team --member backend --kind agent
+agentmesh token list   --workspace team
+agentmesh token revoke --id tok_...
+
+# clients
+coord --token amt_... presence            # or AGENTMESH_TOKEN env
+claude mcp add --transport http agentmesh http://host:8080/mcp \
+  --header "Authorization: Bearer amt_..."
+```
+
+The dashboard accepts the token via its header field (stored in
+localStorage). `AGENTMESH_AUTH=off` (default) preserves the zero-setup demo
+mode. The `auth.Authenticator` interface is the v2 seam: OAuth 2.1/OIDC
+validation (per the MCP authorization spec: RFC 9728 discovery + RFC 8707
+audience binding) plugs in behind the same checks without touching call sites.
 
 ### `coord` CLI & Claude Code integration
 
@@ -178,8 +207,12 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
   served by the same binary, zero extra infrastructure. Yjs CRDTs and
   Centrifugo remain the documented upgrade path if offline/peer editing or
   websocket-scale fan-out is ever needed.
-- **Phase 4 — hardening & interop**: A2A Agent Cards, CLI fallback, trust
-  scoring / injection defenses, optional Temporal + cross-node federation.
+- **Phase 4 — hardening & interop** (in progress): ✅ bearer-token
+  authentication with per-principal identity enforcement (anti-spoofing,
+  kind/workspace binding, immediate revocation; `auth.Authenticator` is the
+  seam for OAuth 2.1/OIDC per the MCP authorization spec). Remaining: A2A
+  Agent Cards, trust scoring / injection defenses, optional Temporal +
+  cross-node federation.
 
 ## License
 

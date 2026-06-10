@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 )
@@ -45,6 +46,9 @@ func (s *Service) MemoryWrite(ctx context.Context, workspace, author string, sco
 	}
 	if len(source) > maxMemorySource {
 		return model.Memory{}, fmt.Errorf("%w: source must be at most %d bytes", ErrInvalidInput, maxMemorySource)
+	}
+	if err := auth.CheckActor(ctx, workspace, author); err != nil {
+		return model.Memory{}, err
 	}
 	if err := s.requireMember(ctx, workspace, author); err != nil {
 		return model.Memory{}, err
@@ -101,6 +105,10 @@ func (s *Service) MemorySearch(ctx context.Context, workspace, requester, query 
 	case limit > maxMemoryLimit:
 		limit = maxMemoryLimit
 	}
+	// requester decides private-memory visibility, so identity must be proven.
+	if err := auth.CheckActor(ctx, workspace, requester); err != nil {
+		return nil, err
+	}
 	if err := s.requireMember(ctx, workspace, requester); err != nil {
 		return nil, err
 	}
@@ -116,6 +124,9 @@ func (s *Service) MemorySearch(ctx context.Context, workspace, requester, query 
 // members may inspect the queue.
 func (s *Service) MemoryQueue(ctx context.Context, workspace, reviewer string) ([]model.Memory, error) {
 	if err := validName("workspace", workspace); err != nil {
+		return nil, err
+	}
+	if err := auth.CheckActor(ctx, workspace, reviewer); err != nil {
 		return nil, err
 	}
 	if err := s.requireHuman(ctx, workspace, reviewer); err != nil {
@@ -134,6 +145,9 @@ func (s *Service) MemoryQueuePeek(ctx context.Context, workspace string) ([]mode
 	if err := validName("workspace", workspace); err != nil {
 		return nil, err
 	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return nil, err
+	}
 	return s.store.ListPendingShared(ctx, workspace)
 }
 
@@ -149,6 +163,9 @@ func (s *Service) MemoryReview(ctx context.Context, workspace, reviewer, id stri
 	}
 	if len(note) > maxMemoryReviewNote {
 		return model.Memory{}, fmt.Errorf("%w: note must be at most %d bytes", ErrInvalidInput, maxMemoryReviewNote)
+	}
+	if err := auth.CheckActor(ctx, workspace, reviewer); err != nil {
+		return model.Memory{}, err
 	}
 	if err := s.requireHuman(ctx, workspace, reviewer); err != nil {
 		return model.Memory{}, err

@@ -16,6 +16,12 @@ type Config struct {
 	// "memory" (ephemeral, zero-dependency — for demos, local trials, and the
 	// loopback validation). Memory state is lost on restart.
 	Store string
+	// Auth selects the authentication mode: "off" (default; trusted-network
+	// mode, today's behaviour) or "token" (bearer tokens required on /mcp and
+	// /ui/api; issue them with `agentmesh token create`). Token mode requires
+	// the postgres store so credentials survive restarts and can be issued
+	// out-of-process.
+	Auth string
 	// DatabaseURL is the Postgres DSN (authoritative store).
 	DatabaseURL string
 	// NATSURL is the NATS server URL. When empty, a no-op bus is used.
@@ -35,6 +41,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		HTTPAddr:    env("AGENTMESH_HTTP_ADDR", ":8080"),
 		Store:       env("AGENTMESH_STORE", "postgres"),
+		Auth:        env("AGENTMESH_AUTH", "off"),
 		DatabaseURL: env("AGENTMESH_DATABASE_URL", "postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable"),
 		NATSURL:     env("AGENTMESH_NATS_URL", ""),
 		PresenceTTL: 60 * time.Second,
@@ -45,6 +52,14 @@ func Load() (Config, error) {
 	case "postgres", "memory":
 	default:
 		return Config{}, fmt.Errorf("AGENTMESH_STORE must be 'postgres' or 'memory', got %q", cfg.Store)
+	}
+	switch cfg.Auth {
+	case "off", "token":
+	default:
+		return Config{}, fmt.Errorf("AGENTMESH_AUTH must be 'off' or 'token', got %q", cfg.Auth)
+	}
+	if cfg.Auth == "token" && cfg.Store != "postgres" {
+		return Config{}, fmt.Errorf("AGENTMESH_AUTH=token requires AGENTMESH_STORE=postgres (tokens must survive restarts and be issuable out-of-process)")
 	}
 	if v := os.Getenv("AGENTMESH_PRESENCE_TTL"); v != "" {
 		d, err := time.ParseDuration(v)

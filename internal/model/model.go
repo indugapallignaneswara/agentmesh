@@ -136,6 +136,20 @@ type Memory struct {
 	ReviewedAt *time.Time   `json:"reviewed_at,omitempty"`
 }
 
+// AuthToken is the stored record of a bearer credential bound to one principal
+// (workspace + member + kind). Secret is never stored — only its SHA-256 hash.
+// Revocation is soft (RevokedAt) so issuance history remains auditable.
+type AuthToken struct {
+	ID        string     `json:"id"`
+	TokenHash string     `json:"-"`
+	Workspace string     `json:"workspace"`
+	Member    string     `json:"member"`
+	Kind      Kind       `json:"kind"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+}
+
 // Artifact is a co-edited document (design notes, a plan, a runbook) shared by
 // the whole workspace. Concurrency is optimistic: every write carries the
 // version it was based on, the server increments Version on success, and a

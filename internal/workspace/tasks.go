@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 )
@@ -24,6 +25,9 @@ func (s *Service) CreateTask(ctx context.Context, workspace, creator, title, det
 	}
 	if len(dependsOn) > maxDependsOn {
 		return model.Task{}, fmt.Errorf("%w: at most %d dependencies", ErrInvalidInput, maxDependsOn)
+	}
+	if err := auth.CheckActor(ctx, workspace, creator); err != nil {
+		return model.Task{}, err
 	}
 	if err := s.requireMember(ctx, workspace, creator); err != nil {
 		return model.Task{}, err
@@ -62,6 +66,9 @@ func (s *Service) ClaimTask(ctx context.Context, workspace, agent string) (model
 	if err := validName("agent", agent); err != nil {
 		return model.Task{}, err
 	}
+	if err := auth.CheckActor(ctx, workspace, agent); err != nil {
+		return model.Task{}, err
+	}
 	if err := s.requireMember(ctx, workspace, agent); err != nil {
 		return model.Task{}, err
 	}
@@ -89,6 +96,9 @@ func (s *Service) CompleteTask(ctx context.Context, workspace, id, agent, result
 	if id == "" {
 		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
 	}
+	if err := auth.CheckActor(ctx, workspace, agent); err != nil {
+		return model.Task{}, err
+	}
 	status := model.TaskCompleted
 	if !done {
 		status = model.TaskFailed
@@ -112,6 +122,9 @@ func (s *Service) GetTask(ctx context.Context, workspace, id string) (model.Task
 	if id == "" {
 		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
 	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return model.Task{}, err
+	}
 	return s.store.GetTask(ctx, workspace, id)
 }
 
@@ -128,6 +141,9 @@ func (s *Service) ListTasks(ctx context.Context, workspace string, statuses []mo
 		default:
 			return nil, fmt.Errorf("%w: unknown status %q", ErrInvalidInput, st)
 		}
+	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return nil, err
 	}
 	return s.store.ListTasks(ctx, workspace, statuses, s.now())
 }

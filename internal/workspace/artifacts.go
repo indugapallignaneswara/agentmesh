@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 )
 
@@ -32,6 +33,9 @@ func (s *Service) ArtifactPut(ctx context.Context, workspace, author, name, cont
 	}
 	if baseVersion < 0 {
 		return model.Artifact{}, fmt.Errorf("%w: base_version must be >= 0", ErrInvalidInput)
+	}
+	if err := auth.CheckActor(ctx, workspace, author); err != nil {
+		return model.Artifact{}, err
 	}
 	if err := s.requireMember(ctx, workspace, author); err != nil {
 		return model.Artifact{}, err
@@ -63,12 +67,18 @@ func (s *Service) ArtifactGet(ctx context.Context, workspace, name string) (mode
 	if err := validName("name", name); err != nil {
 		return model.Artifact{}, err
 	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return model.Artifact{}, err
+	}
 	return s.store.GetArtifact(ctx, workspace, name)
 }
 
 // ArtifactList returns the workspace's artifacts ordered by name.
 func (s *Service) ArtifactList(ctx context.Context, workspace string) ([]model.Artifact, error) {
 	if err := validName("workspace", workspace); err != nil {
+		return nil, err
+	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
 		return nil, err
 	}
 	return s.store.ListArtifacts(ctx, workspace)

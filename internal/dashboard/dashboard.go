@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
 )
@@ -80,6 +81,10 @@ func Handler(svc *workspace.Service) http.Handler {
 func httpErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, workspace.ErrInvalidInput) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, auth.ErrForbidden) {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	http.Error(w, err.Error(), http.StatusInternalServerError)

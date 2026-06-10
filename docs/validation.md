@@ -122,7 +122,11 @@ automatically at turn boundaries.
 - **Consume-on-read / at-most-once.** A message is delivered once; if a session
   reads then crashes before acting, that message is gone. (A read/ack split is a
   later-phase candidate.)
-- **No auth.** Phase 0 has no authentication; only run on a trusted network.
+- **Auth.** By default (`AGENTMESH_AUTH=off`) there is no authentication —
+  only run on a trusted network. For anything beyond that, set
+  `AGENTMESH_AUTH=token`, issue per-member tokens with
+  `agentmesh token create`, and pass them via `coord --token` /
+  `claude mcp add --header "Authorization: Bearer ..."`.
 
 ## Status
 

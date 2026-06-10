@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
@@ -131,7 +132,8 @@ func failMemory[T any](err error) (*mcp.CallToolResult, T, error) {
 	var zero T
 	if errors.Is(err, workspace.ErrInvalidInput) ||
 		errors.Is(err, store.ErrNotFound) ||
-		errors.Is(err, store.ErrMemoryConflict) {
+		errors.Is(err, store.ErrMemoryConflict) ||
+		errors.Is(err, auth.ErrForbidden) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

@@ -41,6 +41,7 @@ func main() {
 // before the subcommand name.
 func run(args []string) error {
 	endpoint := envOr("AGENTMESH_ENDPOINT", defaultEndpoint)
+	token := os.Getenv("AGENTMESH_TOKEN")
 	jsonOut := false
 
 	// Consume leading global flags.
@@ -54,6 +55,12 @@ func run(args []string) error {
 				return fmt.Errorf("--endpoint requires a value")
 			}
 			endpoint = args[1]
+			args = args[2:]
+		case "--token", "-token":
+			if len(args) < 2 {
+				return fmt.Errorf("--token requires a value")
+			}
+			token = args[1]
 			args = args[2:]
 		case "-h", "--help", "help":
 			usage()
@@ -70,7 +77,11 @@ dispatch:
 	}
 
 	cmd, rest := args[0], args[1:]
-	cl := client.New(endpoint)
+	var opts []client.Option
+	if token != "" {
+		opts = append(opts, client.WithToken(token))
+	}
+	cl := client.New(endpoint, opts...)
 	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 
@@ -134,6 +145,7 @@ Commands:
 
 Global flags:
   --endpoint URL   MCP endpoint (env AGENTMESH_ENDPOINT, default `+defaultEndpoint+`)
+  --token SECRET   Bearer token when the server requires auth (env AGENTMESH_TOKEN)
   --json           Print the raw JSON tool result
 
 Run "coord <command> -h" for command-specific flags.

@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/bus"
 	"github.com/indugapallignaneswara/agentmesh/internal/config"
 	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
@@ -26,6 +28,15 @@ import (
 var version = "0.1.0-dev"
 
 func main() {
+	// `agentmesh token ...` is the credential admin CLI; everything else runs
+	// the server.
+	if len(os.Args) > 1 && os.Args[1] == "token" {
+		if err := runTokenCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "agentmesh token: "+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -93,9 +104,21 @@ func run() error {
 	mux.Handle("/ui", dashboard.Handler(svc))
 	mux.Handle("/ui/", dashboard.Handler(svc))
 
+	// Authentication: in token mode every endpoint except the health check and
+	// the dashboard shell page requires a bearer token; the page itself is an
+	// empty shell whose data calls (/ui/api) are gated.
+	var handler http.Handler = mux
+	if cfg.Auth == "token" {
+		authn := &auth.TokenAuthenticator{Store: st}
+		handler = auth.Middleware(authn, "/healthz", "/ui")(mux)
+		logger.Info("authentication enabled", "mode", "token")
+	} else {
+		logger.Warn("authentication is OFF; anyone who can reach this address can join — use only on a trusted network")
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

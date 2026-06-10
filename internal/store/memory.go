@@ -22,6 +22,7 @@ type Memory struct {
 	tasks    []memTask // insertion order preserved for oldest-first claiming
 	mems     []model.Memory
 	arts     map[string]model.Artifact // key: workspace + "\x00" + name
+	tokens   []model.AuthToken
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises

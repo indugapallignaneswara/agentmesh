@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/bus"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
@@ -108,6 +109,14 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 	if !kind.Valid() {
 		return model.Member{}, fmt.Errorf("%w: kind must be %q or %q", ErrInvalidInput, model.KindHuman, model.KindAgent)
 	}
+	// With auth on, a credential may only join as its own identity and kind —
+	// an agent token joining as "human" would otherwise gain review authority.
+	if err := auth.CheckActor(ctx, workspace, name); err != nil {
+		return model.Member{}, err
+	}
+	if err := auth.CheckKind(ctx, kind); err != nil {
+		return model.Member{}, err
+	}
 	if len(agentCard) > 0 && !json.Valid(agentCard) {
 		return model.Member{}, fmt.Errorf("%w: agent_card is not valid JSON", ErrInvalidInput)
 	}
@@ -132,6 +141,9 @@ func (s *Service) Presence(ctx context.Context, workspace string) ([]model.Membe
 	if err := validName("workspace", workspace); err != nil {
 		return nil, err
 	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return nil, err
+	}
 	return s.store.ListActiveMembers(ctx, workspace, s.now().Add(-s.presenceTTL))
 }
 
@@ -149,6 +161,14 @@ func (s *Service) SendMessage(ctx context.Context, workspace, from, to, body str
 	}
 	if body == "" {
 		return model.Message{}, fmt.Errorf("%w: body is required", ErrInvalidInput)
+	}
+	// Any-to-any addressing implies two distinct parties; a self-addressed
+	// direct message is almost always a mistake.
+	if from == to {
+		return model.Message{}, fmt.Errorf("%w: cannot send a direct message to yourself", ErrInvalidInput)
+	}
+	if err := auth.CheckActor(ctx, workspace, from); err != nil {
+		return model.Message{}, err
 	}
 	if err := s.requireMember(ctx, workspace, from); err != nil {
 		return model.Message{}, err
@@ -184,6 +204,9 @@ func (s *Service) Broadcast(ctx context.Context, workspace, from, body string) (
 	}
 	if body == "" {
 		return model.Message{}, 0, fmt.Errorf("%w: body is required", ErrInvalidInput)
+	}
+	if err := auth.CheckActor(ctx, workspace, from); err != nil {
+		return model.Message{}, 0, err
 	}
 	if err := s.requireMember(ctx, workspace, from); err != nil {
 		return model.Message{}, 0, err
@@ -223,6 +246,11 @@ func (s *Service) ReadInbox(ctx context.Context, workspace, member string) ([]mo
 	if err := validName("member", member); err != nil {
 		return nil, err
 	}
+	// The inbox is the most sensitive read path: only the member itself may
+	// drain its messages.
+	if err := auth.CheckActor(ctx, workspace, member); err != nil {
+		return nil, err
+	}
 	if err := s.requireMember(ctx, workspace, member); err != nil {
 		return nil, err
 	}
@@ -240,6 +268,9 @@ func (s *Service) PublishEvent(ctx context.Context, workspace, source, eventType
 		return model.Event{}, err
 	}
 	if err := validName("source", source); err != nil {
+		return model.Event{}, err
+	}
+	if err := auth.CheckActor(ctx, workspace, source); err != nil {
 		return model.Event{}, err
 	}
 	if eventType == "" || len(eventType) > 128 {
@@ -273,8 +304,14 @@ func (s *Service) Subscribe(ctx context.Context, workspace, member string, since
 	if err := validName("workspace", workspace); err != nil {
 		return nil, since, err
 	}
+	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
+		return nil, since, err
+	}
 	if member != "" {
 		if err := validName("member", member); err != nil {
+			return nil, since, err
+		}
+		if err := auth.CheckActor(ctx, workspace, member); err != nil {
 			return nil, since, err
 		}
 		if err := s.requireMember(ctx, workspace, member); err != nil {

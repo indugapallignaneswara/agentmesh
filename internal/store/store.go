@@ -137,6 +137,23 @@ type Store interface {
 	// layer enforces who may review).
 	ReviewMemory(ctx context.Context, workspace, id, reviewer string, approve bool, note string, now time.Time) (model.Memory, error)
 
+	// CreateAuthToken persists a token record (hash only; the caller keeps the
+	// secret). ID and TokenHash must be unique.
+	CreateAuthToken(ctx context.Context, t model.AuthToken) (model.AuthToken, error)
+
+	// GetAuthTokenByHash returns the ACTIVE token with this hash: not revoked
+	// and not expired as of now. Missing, revoked or expired all return
+	// ErrNotFound so callers cannot distinguish (no oracle for attackers).
+	GetAuthTokenByHash(ctx context.Context, hash string, now time.Time) (model.AuthToken, error)
+
+	// RevokeAuthToken soft-revokes a token by ID. ErrNotFound if absent or
+	// already revoked.
+	RevokeAuthToken(ctx context.Context, id string, now time.Time) error
+
+	// ListAuthTokens returns a workspace's tokens (including revoked/expired,
+	// for audit), newest first.
+	ListAuthTokens(ctx context.Context, workspace string) ([]model.AuthToken, error)
+
 	// PutArtifact writes an artifact with optimistic concurrency. baseVersion 0
 	// creates the artifact (ErrArtifactConflict if it already exists); a
 	// non-zero baseVersion updates it only if the stored version still equals
