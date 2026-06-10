@@ -34,6 +34,11 @@ var (
 	// ErrMemoryConflict is returned by ReviewMemory when the item is not a
 	// shared, still-pending memory (already reviewed, or private).
 	ErrMemoryConflict = errors.New("memory review conflict")
+
+	// ErrArtifactConflict is returned by PutArtifact when the caller's base
+	// version is stale (someone else wrote first) or when creating an artifact
+	// that already exists. The caller should re-read, merge, and retry.
+	ErrArtifactConflict = errors.New("artifact version conflict")
 )
 
 // Store is the authoritative system of record for the workspace. All timestamps
@@ -131,6 +136,20 @@ type Store interface {
 	// ErrMemoryConflict if it is not a shared, still-pending item (the service
 	// layer enforces who may review).
 	ReviewMemory(ctx context.Context, workspace, id, reviewer string, approve bool, note string, now time.Time) (model.Memory, error)
+
+	// PutArtifact writes an artifact with optimistic concurrency. baseVersion 0
+	// creates the artifact (ErrArtifactConflict if it already exists); a
+	// non-zero baseVersion updates it only if the stored version still equals
+	// baseVersion (ErrArtifactConflict if stale, ErrNotFound if absent). On
+	// success the stored Version is baseVersion+1. a.UpdatedBy/UpdatedAt are
+	// the writer and write time; on create they also seed CreatedBy/CreatedAt.
+	PutArtifact(ctx context.Context, a model.Artifact, baseVersion int64) (model.Artifact, error)
+
+	// GetArtifact returns one artifact or ErrNotFound.
+	GetArtifact(ctx context.Context, workspace, name string) (model.Artifact, error)
+
+	// ListArtifacts returns a workspace's artifacts ordered by name.
+	ListArtifacts(ctx context.Context, workspace string) ([]model.Artifact, error)
 
 	// Close releases any resources held by the store.
 	Close() error

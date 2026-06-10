@@ -78,6 +78,7 @@ trade-off.
 | `memory_write` | Store knowledge with provenance — `private` (immediate, own-eyes-only) or `shared` (review-gated) |
 | `memory_search` | Ranked full-text search over your private + approved shared memories |
 | `memory_queue` / `memory_review` | Human-only: inspect and approve/reject pending shared submissions |
+| `get_artifact` / `update_artifact` / `list_artifacts` | Co-edited docs with optimistic concurrency — stale writes get a conflict + merge guidance, never lost updates |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so
@@ -93,7 +94,7 @@ make up
 AGENTMESH_DATABASE_URL='postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable' \
 AGENTMESH_NATS_URL='nats://localhost:4222' \
 make run
-# MCP endpoint: http://localhost:8080/mcp   health: http://localhost:8080/healthz
+# MCP endpoint: http://localhost:8080/mcp   health: /healthz   dashboard: /ui
 ```
 
 Register it with an agent (Claude Code):
@@ -170,8 +171,13 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
   directly (the anti-poisoning defense). Search is ranked Postgres full-text
   today; the schema and `memory_search` contract are vector-ready, so a
   pgvector embedder can be added without changing the tools.
-- **Phase 3 — co-edited artifacts + UI**: Yjs task board / design notes;
-  Centrifugo-backed presence dashboard.
+- **Phase 3 — co-edited artifacts + UI** ✅ versioned artifacts with
+  optimistic concurrency (human+agent co-editing, stale writes rejected with
+  merge guidance — no lost updates) and a built-in web dashboard at `/ui`
+  (live presence, event stream, task board, memory review queue, artifacts)
+  served by the same binary, zero extra infrastructure. Yjs CRDTs and
+  Centrifugo remain the documented upgrade path if offline/peer editing or
+  websocket-scale fan-out is ever needed.
 - **Phase 4 — hardening & interop**: A2A Agent Cards, CLI fallback, trust
   scoring / injection defenses, optional Temporal + cross-node federation.
 

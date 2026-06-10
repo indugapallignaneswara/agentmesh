@@ -95,6 +95,8 @@ dispatch:
 		return cmdTask(ctx, cl, out, rest)
 	case "memory":
 		return cmdMemory(ctx, cl, out, rest)
+	case "artifact":
+		return cmdArtifact(ctx, cl, out, rest)
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", cmd)
@@ -128,6 +130,7 @@ Commands:
   subscribe  Read events after a cursor
   task       Shared task board: task create|claim|complete|get|list
   memory     Shared memory: memory write|search|queue|approve|reject
+  artifact   Co-edited artifacts: artifact get|put|list
 
 Global flags:
   --endpoint URL   MCP endpoint (env AGENTMESH_ENDPOINT, default `+defaultEndpoint+`)

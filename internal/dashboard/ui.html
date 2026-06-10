@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AgentMesh</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         background: #0d1117; color: #c9d1d9; }
+  header { display: flex; gap: 12px; align-items: center; padding: 12px 18px;
+           border-bottom: 1px solid #21262d; position: sticky; top: 0; background: #0d1117; }
+  header h1 { font-size: 15px; margin: 0; color: #58a6ff; }
+  header input { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+                 border-radius: 6px; padding: 4px 8px; font: inherit; width: 10em; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #f85149; }
+  header .dot.ok { background: #3fb950; }
+  main { display: grid; gap: 14px; padding: 14px 18px;
+         grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); }
+  section { background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+            padding: 12px 14px; min-height: 90px; }
+  section h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+               letter-spacing: .08em; color: #8b949e; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 3px 0; border-bottom: 1px dashed #21262d; word-break: break-word; }
+  li:last-child { border-bottom: 0; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 11px;
+         border: 1px solid #30363d; margin-right: 6px; color: #8b949e; }
+  .tag.human { color: #d2a8ff; border-color: #d2a8ff55; }
+  .tag.agent { color: #58a6ff; border-color: #58a6ff55; }
+  .tag.pending { color: #d29922; border-color: #d2992255; }
+  .tag.claimed { color: #58a6ff; border-color: #58a6ff55; }
+  .tag.completed { color: #3fb950; border-color: #3fb95055; }
+  .tag.failed { color: #f85149; border-color: #f8514955; }
+  .muted { color: #8b949e; }
+  #events li { font-size: 13px; }
+  .empty { color: #484f58; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AgentMesh</h1>
+  <span class="dot" id="dot" title="connection"></span>
+  <label class="muted">workspace <input id="ws" value="team"></label>
+  <span class="muted" id="status"></span>
+</header>
+<main>
+  <section><h2>Presence</h2><ul id="presence"></ul></section>
+  <section><h2>Event stream</h2><ul id="events"></ul></section>
+  <section><h2>Task board</h2><ul id="tasks"></ul></section>
+  <section><h2>Memory review queue</h2><ul id="queue"></ul></section>
+  <section><h2>Artifacts</h2><ul id="artifacts"></ul></section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let cursor = 0, eventLog = [];
+
+const qs = new URLSearchParams(location.search);
+if (qs.get("workspace")) $("ws").value = qs.get("workspace");
+$("ws").addEventListener("change", () => { cursor = 0; eventLog = []; });
+
+function render(list, items, fmt) {
+  $(list).innerHTML = items && items.length
+    ? items.map(fmt).join("")
+    : '<li class="empty">nothing yet</li>';
+}
+
+async function tick() {
+  const ws = $("ws").value.trim();
+  if (!ws) return;
+  try {
+    const r = await fetch(`/ui/api?workspace=${encodeURIComponent(ws)}&since=${cursor}`);
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    $("dot").className = "dot ok";
+    $("status").textContent = "";
+
+    render("presence", d.presence, m =>
+      `<li><span class="tag ${esc(m.kind)}">${esc(m.kind)}</span>${esc(m.name)}</li>`);
+
+    if (d.events && d.events.length) {
+      eventLog.push(...d.events);
+      eventLog = eventLog.slice(-100);
+    }
+    cursor = d.cursor || cursor;
+    render("events", [...eventLog].reverse(), e =>
+      `<li><span class="muted">#${e.seq}</span> <b>${esc(e.source)}</b> ${esc(e.type)}</li>`);
+
+    render("tasks", d.tasks, t =>
+      `<li><span class="tag ${esc(t.status)}">${esc(t.status)}</span>${esc(t.title)}` +
+      (t.assigned_agent ? ` <span class="muted">→ ${esc(t.assigned_agent)}</span>` : "") + `</li>`);
+
+    render("queue", d.memory_queue, m =>
+      `<li><span class="tag pending">pending</span><b>${esc(m.created_by)}</b>: ${esc(m.content)}` +
+      `<br><span class="muted">approve: coord memory approve --id ${esc(m.id)}</span></li>`);
+
+    render("artifacts", d.artifacts, a =>
+      `<li>${esc(a.name)} <span class="muted">v${a.version} by ${esc(a.updated_by)}</span></li>`);
+  } catch (err) {
+    $("dot").className = "dot";
+    $("status").textContent = String(err).slice(0, 120);
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>

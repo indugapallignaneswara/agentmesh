@@ -76,6 +76,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	}, listTasksHandler(svc))
 
 	registerMemoryTools(s, svc)
+	registerArtifactTools(s, svc)
 }
 
 // --- tool argument and result types ---

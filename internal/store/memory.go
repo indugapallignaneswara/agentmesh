@@ -21,6 +21,7 @@ type Memory struct {
 	seq      int64
 	tasks    []memTask // insertion order preserved for oldest-first claiming
 	mems     []model.Memory
+	arts     map[string]model.Artifact // key: workspace + "\x00" + name
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises
@@ -45,7 +46,10 @@ type memDelivery struct {
 
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
-	return &Memory{members: make(map[string]model.Member)}
+	return &Memory{
+		members: make(map[string]model.Member),
+		arts:    make(map[string]model.Artifact),
+	}
 }
 
 func memKey(workspace, name string) string { return workspace + "\x00" + name }

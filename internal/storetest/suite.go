@@ -53,6 +53,9 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("MemorySearchRankAndLimit", func(t *testing.T) { testMemorySearchRankAndLimit(t, newStore(t)) })
 	t.Run("MemoryReviewApprove", func(t *testing.T) { testMemoryReviewApprove(t, newStore(t)) })
 	t.Run("MemoryReviewRejectAndConflicts", func(t *testing.T) { testMemoryReviewRejectAndConflicts(t, newStore(t)) })
+
+	t.Run("ArtifactCreateGetList", func(t *testing.T) { testArtifactCreateGetList(t, newStore(t)) })
+	t.Run("ArtifactOptimisticConcurrency", func(t *testing.T) { testArtifactOptimisticConcurrency(t, newStore(t)) })
 }
 
 func testUpsert(t *testing.T, s store.Store) {

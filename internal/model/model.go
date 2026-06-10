@@ -136,6 +136,23 @@ type Memory struct {
 	ReviewedAt *time.Time   `json:"reviewed_at,omitempty"`
 }
 
+// Artifact is a co-edited document (design notes, a plan, a runbook) shared by
+// the whole workspace. Concurrency is optimistic: every write carries the
+// version it was based on, the server increments Version on success, and a
+// stale write is rejected with a conflict so the writer re-reads, merges, and
+// retries — no lost updates. (A CRDT engine can replace this strategy later if
+// offline/peer editing is ever needed; the read/modify/write contract stays.)
+type Artifact struct {
+	Workspace string    `json:"workspace"`
+	Name      string    `json:"name"`
+	Content   string    `json:"content"`
+	Version   int64     `json:"version"`
+	CreatedBy string    `json:"created_by"`
+	UpdatedBy string    `json:"updated_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Event is an entry in the append-only episodic log. Events are the observation
 // path (read via subscribe with a monotonic cursor) and are intentionally
 // independent of inbox delivery: an event may reference a message but the

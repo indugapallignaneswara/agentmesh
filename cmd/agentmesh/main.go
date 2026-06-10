@@ -15,6 +15,7 @@ import (
 
 	"github.com/indugapallignaneswara/agentmesh/internal/bus"
 	"github.com/indugapallignaneswara/agentmesh/internal/config"
+	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
 	"github.com/indugapallignaneswara/agentmesh/internal/mcpserver"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
@@ -89,6 +90,8 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.Handle("/mcp", mcpserver.Handler(svc, version))
+	mux.Handle("/ui", dashboard.Handler(svc))
+	mux.Handle("/ui/", dashboard.Handler(svc))
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

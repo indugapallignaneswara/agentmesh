@@ -124,6 +124,19 @@ func (s *Service) MemoryQueue(ctx context.Context, workspace, reviewer string) (
 	return s.store.ListPendingShared(ctx, workspace)
 }
 
+// MemoryQueuePeek returns the pending shared submissions for the web
+// dashboard. Unlike MemoryQueue it takes no reviewer principal: the dashboard
+// is an inherently human surface, and Phases 0-3 ship without authentication —
+// the MCP-tool guard (MemoryQueue) exists to keep *agents* from pulling
+// quarantined content into their context, which it still does. When Phase 4
+// adds auth, this endpoint gets gated with the rest of the UI.
+func (s *Service) MemoryQueuePeek(ctx context.Context, workspace string) ([]model.Memory, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return nil, err
+	}
+	return s.store.ListPendingShared(ctx, workspace)
+}
+
 // MemoryReview approves or rejects a pending shared item. The reviewer must be
 // a human member and must not be the item's author — an agent (or the author)
 // can never push its own submission into shared memory.

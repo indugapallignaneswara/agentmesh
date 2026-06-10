@@ -134,9 +134,30 @@ AGENTMESH_MEMBER="$HUMAN" "$COORD" memory approve --id "$mid" --note "checked" >
 postB=$(AGENTMESH_MEMBER="$B" "$COORD" memory search canary gate)
 echo "$postB" | grep -q "canary gate" && pass "$B retrieves $A's knowledge after human approval" || fail "recall failed: $postB"
 
+# --- Phase 3: co-edited artifacts (no lost updates) + dashboard ---
+
+echo "==> Test 9: co-edited artifact — stale write rejected, merge succeeds"
+AGENTMESH_MEMBER="$A" "$COORD" artifact put --name plan --base-version 0 "step 1" >/dev/null
+AGENTMESH_MEMBER="$B" "$COORD" artifact put --name plan --base-version 1 "step 1 + step 2" >/dev/null
+# $A writes from the stale base 1 -> must be rejected with guidance.
+stale=$(AGENTMESH_MEMBER="$A" "$COORD" artifact put --name plan --base-version 1 "stale overwrite" 2>&1) \
+  && fail "stale write was accepted (lost update!)" \
+  || { echo "$stale" | grep -q "base_version=2" && pass "stale write rejected with merge guidance" \
+       || fail "conflict not actionable: $stale"; }
+# $A re-reads and merges from the current version -> v3.
+merged=$(AGENTMESH_MEMBER="$A" "$COORD" artifact put --name plan --base-version 2 "step 1 + step 2 + step 3")
+echo "$merged" | grep -q "version 3" && pass "merge from current version produced v3" || fail "merge: $merged"
+
+echo "==> Test 10: dashboard overview reflects the workspace"
+ov=$(curl -sf -m5 "http://127.0.0.1:${PORT}/ui/api?workspace=${WS}&since=0")
+echo "$ov" | grep -q '"plan"' && echo "$ov" | grep -q '"presence"' \
+  && pass "/ui/api serves presence + artifacts" || fail "overview: $(echo "$ov" | head -c 120)"
+curl -sf -m5 "http://127.0.0.1:${PORT}/ui" | grep -q "AgentMesh" \
+  && pass "/ui serves the dashboard page" || fail "/ui not serving"
+
 echo
 if [ "$FAILED" -eq 0 ]; then
-  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0-2 metrics on one host.\n'
+  printf '\033[32mAll loopback checks passed.\033[0m This simulates the Phase 0-3 metrics on one host.\n'
   printf 'For the real cross-machine / cross-vendor test, see docs/validation.md.\n'
 else
   printf '\033[31mSome checks failed.\033[0m See output above.\n'
