@@ -31,6 +31,26 @@ type overview struct {
 	Artifacts   []model.Artifact `json:"artifacts"`
 }
 
+// normalize replaces nil slices with empty ones so every list field in the
+// JSON response is an array, never null.
+func (o *overview) normalize() {
+	if o.Presence == nil {
+		o.Presence = []model.Member{}
+	}
+	if o.Tasks == nil {
+		o.Tasks = []model.Task{}
+	}
+	if o.Events == nil {
+		o.Events = []model.Event{}
+	}
+	if o.MemoryQueue == nil {
+		o.MemoryQueue = []model.Memory{}
+	}
+	if o.Artifacts == nil {
+		o.Artifacts = []model.Artifact{}
+	}
+}
+
 // Handler returns the dashboard handler. Mount it at /ui (it serves both /ui
 // and /ui/api).
 func Handler(svc *workspace.Service) http.Handler {
@@ -70,6 +90,10 @@ func Handler(svc *workspace.Service) http.Handler {
 			httpErr(w, err)
 			return
 		}
+
+		// Normalise nil slices to [] so the JSON payload always has array-typed
+		// fields — browser/clients can iterate without nil-guarding each one.
+		ov.normalize()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ov)

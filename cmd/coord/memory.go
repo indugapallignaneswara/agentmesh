@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/indugapallignaneswara/agentmesh/internal/client"
 )
@@ -40,12 +39,13 @@ func cmdMemoryWrite(ctx context.Context, cl *client.Client, out *output, args []
 	scope := fs.String("scope", "private", "memory scope: private or shared (shared is review-gated)")
 	source := fs.String("source", "", "provenance: where this fact came from")
 	content := fs.String("content", "", "memory content (or pass as positional args)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	text := *content
 	if text == "" {
-		text = strings.Join(fs.Args(), " ")
+		text = positional
 	}
 	a := map[string]any{"workspace": *ws, "author": *author, "scope": *scope, "content": text}
 	if *source != "" {
@@ -73,12 +73,13 @@ func cmdMemorySearch(ctx context.Context, cl *client.Client, out *output, args [
 	requester := stringFlag(fs, "requester", "AGENTMESH_MEMBER", "", "searching member")
 	limit := fs.Int("limit", 10, "max results")
 	query := fs.String("query", "", "search query (or pass as positional args)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	q := *query
 	if q == "" {
-		q = strings.Join(fs.Args(), " ")
+		q = positional
 	}
 	raw, err := cl.Raw(ctx, "memory_search", map[string]any{
 		"workspace": *ws, "requester": *requester, "query": q, "limit": *limit,

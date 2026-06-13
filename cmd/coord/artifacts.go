@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/indugapallignaneswara/agentmesh/internal/client"
 )
@@ -60,12 +59,13 @@ func cmdArtifactPut(ctx context.Context, cl *client.Client, out *output, args []
 	name := fs.String("name", "", "artifact name")
 	base := fs.Int64("base-version", 0, "the version this edit is based on (0 to create)")
 	content := fs.String("content", "", "full new content (or pass as positional args)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	text := *content
 	if text == "" {
-		text = strings.Join(fs.Args(), " ")
+		text = positional
 	}
 	raw, err := cl.Raw(ctx, "update_artifact", map[string]any{
 		"workspace": *ws, "author": *author, "name": *name,

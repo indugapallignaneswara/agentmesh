@@ -40,12 +40,13 @@ func cmdTaskCreate(ctx context.Context, cl *client.Client, out *output, args []s
 	title := fs.String("title", "", "task title (or pass as positional args)")
 	details := fs.String("details", "", "longer description")
 	deps := fs.String("depends-on", "", "comma-separated task ids this depends on")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	t := *title
 	if t == "" {
-		t = strings.Join(fs.Args(), " ")
+		t = positional
 	}
 	a := map[string]any{"workspace": *ws, "creator": *creator, "title": t}
 	if *details != "" {

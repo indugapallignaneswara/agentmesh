@@ -11,6 +11,29 @@ import (
 	"github.com/indugapallignaneswara/agentmesh/internal/client"
 )
 
+// parsePositional parses a flag set allowing flags to appear before, after, or
+// interspersed with positional arguments, and returns the collected
+// positionals joined by spaces. Go's flag package stops at the first
+// non-flag token, which would silently ignore a trailing flag like
+// `... "some text" --limit 1`; this loop peels positionals one at a time and
+// keeps parsing, so `coord memory search "q" --limit 1` behaves the same as
+// `coord memory search --limit 1 "q"`. Bool flags are handled correctly
+// because the FlagSet knows each flag's arity.
+func parsePositional(fs *flag.FlagSet, args []string) (string, error) {
+	var positional []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return "", err
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		positional = append(positional, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+	return strings.Join(positional, " "), nil
+}
+
 // output renders results either as the server's raw JSON (--json, for scripts)
 // or as a short human-readable summary (default, for interactive use).
 type output struct {
@@ -95,12 +118,13 @@ func cmdSend(ctx context.Context, cl *client.Client, out *output, args []string)
 	from := stringFlag(fs, "from", "AGENTMESH_MEMBER", "", "sender name")
 	to := fs.String("to", "", "recipient name")
 	body := fs.String("body", "", "message body (or pass as positional args)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	text := *body
 	if text == "" {
-		text = strings.Join(fs.Args(), " ")
+		text = positional
 	}
 	raw, err := cl.Raw(ctx, "send_message", map[string]any{
 		"workspace": *ws, "from": *from, "to": *to, "body": text,
@@ -156,12 +180,13 @@ func cmdBroadcast(ctx context.Context, cl *client.Client, out *output, args []st
 	ws := stringFlag(fs, "workspace", "AGENTMESH_WORKSPACE", "", "workspace id")
 	from := stringFlag(fs, "from", "AGENTMESH_MEMBER", "", "sender name")
 	body := fs.String("body", "", "message body (or pass as positional args)")
-	if err := fs.Parse(args); err != nil {
+	positional, err := parsePositional(fs, args)
+	if err != nil {
 		return err
 	}
 	text := *body
 	if text == "" {
-		text = strings.Join(fs.Args(), " ")
+		text = positional
 	}
 	raw, err := cl.Raw(ctx, "broadcast", map[string]any{
 		"workspace": *ws, "from": *from, "body": text,

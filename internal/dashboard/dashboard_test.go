@@ -86,14 +86,19 @@ func TestDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer res2.Body.Close()
+	body2, _ := io.ReadAll(res2.Body)
 	var ov2 struct {
 		Events []struct{ Type string } `json:"events"`
 	}
-	if err := json.NewDecoder(res2.Body).Decode(&ov2); err != nil {
+	if err := json.Unmarshal(body2, &ov2); err != nil {
 		t.Fatal(err)
 	}
 	if len(ov2.Events) != 0 {
 		t.Fatalf("expected no new events after cursor, got %d", len(ov2.Events))
+	}
+	// events must be [] (not null) when empty, so clients can iterate safely.
+	if !strings.Contains(string(body2), `"events":[]`) {
+		t.Fatalf("empty events should serialize as [], got: %s", body2)
 	}
 
 	// Invalid workspace -> 400.
