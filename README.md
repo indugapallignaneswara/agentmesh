@@ -192,6 +192,11 @@ machine ↔ Codex on another), follow [`docs/validation.md`](docs/validation.md)
 
 ## Roadmap
 
+The original research blueprint (phases 0–4 below) is **fully built**. The
+road from here to a production v1.0 — rooms & moderation, delivery
+guarantees, security/ops hardening, and the open-source launch — lives in
+[**ROADMAP.md**](ROADMAP.md).
+
 - **Phase 0 — core loop** ✅ presence, any-to-any inbox, broadcast, event log.
 - **Phase 1 — shared task state** ✅ task board with dependency-gated
   `SELECT … FOR UPDATE SKIP LOCKED` claiming + leases (no duplicated work;
