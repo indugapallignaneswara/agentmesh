@@ -23,6 +23,9 @@ func (s *Service) CreateTask(ctx context.Context, workspace, creator, title, det
 	if title == "" || len(title) > maxTaskTitle {
 		return model.Task{}, fmt.Errorf("%w: title must be 1-%d characters", ErrInvalidInput, maxTaskTitle)
 	}
+	if len(details) > maxTaskDetails {
+		return model.Task{}, fmt.Errorf("%w: details must be at most %d bytes", ErrInvalidInput, maxTaskDetails)
+	}
 	if len(dependsOn) > maxDependsOn {
 		return model.Task{}, fmt.Errorf("%w: at most %d dependencies", ErrInvalidInput, maxDependsOn)
 	}
@@ -96,6 +99,9 @@ func (s *Service) CompleteTask(ctx context.Context, workspace, id, agent, result
 	if id == "" {
 		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
 	}
+	if len(result) > maxTaskResult {
+		return model.Task{}, fmt.Errorf("%w: result must be at most %d bytes", ErrInvalidInput, maxTaskResult)
+	}
 	if err := auth.CheckActor(ctx, workspace, agent); err != nil {
 		return model.Task{}, err
 	}
@@ -111,6 +117,35 @@ func (s *Service) CompleteTask(ctx context.Context, workspace, id, agent, result
 	s.appendEvent(ctx, workspace, agent, EventTaskCompleted, map[string]any{
 		"task_id": id, "status": status,
 	})
+	return t, nil
+}
+
+// RetryTask requeues a failed task (failed -> pending), which also unblocks any
+// task that depended on it. The caller must be a member of the workspace; the
+// task must currently be failed. This is the escape hatch for the otherwise
+// permanent dead-end of a task that depends on a failed one.
+func (s *Service) RetryTask(ctx context.Context, workspace, actor, id string) (model.Task, error) {
+	if err := validName("workspace", workspace); err != nil {
+		return model.Task{}, err
+	}
+	if err := validName("actor", actor); err != nil {
+		return model.Task{}, err
+	}
+	if id == "" {
+		return model.Task{}, fmt.Errorf("%w: task id is required", ErrInvalidInput)
+	}
+	if err := auth.CheckActor(ctx, workspace, actor); err != nil {
+		return model.Task{}, err
+	}
+	if err := s.requireMember(ctx, workspace, actor); err != nil {
+		return model.Task{}, err
+	}
+	t, err := s.store.RetryTask(ctx, workspace, id, s.now())
+	if err != nil {
+		return model.Task{}, err // ErrNotFound / ErrTaskConflict pass through
+	}
+	s.touch(ctx, workspace, actor)
+	s.appendEvent(ctx, workspace, actor, EventTaskRetried, map[string]any{"task_id": id})
 	return t, nil
 }
 

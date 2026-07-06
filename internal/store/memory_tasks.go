@@ -89,6 +89,26 @@ func (s *Memory) CompleteTask(_ context.Context, workspace, id, agent string, st
 	return s.materialise(*mt), nil
 }
 
+func (s *Memory) RetryTask(_ context.Context, workspace, id string, now time.Time) (model.Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	mt := s.findTaskLocked(workspace, id)
+	if mt == nil {
+		return model.Task{}, ErrNotFound
+	}
+	if mt.task.Status != model.TaskFailed {
+		return model.Task{}, fmt.Errorf("%w: task %q is %s, only failed tasks can be retried",
+			ErrTaskConflict, id, mt.task.Status)
+	}
+	mt.task.Status = model.TaskPending
+	mt.task.AssignedAgent = ""
+	mt.task.Result = ""
+	mt.task.ClaimedAt = nil
+	mt.task.LeaseExpiresAt = nil
+	mt.task.UpdatedAt = now
+	return s.materialise(*mt), nil
+}
+
 // --- helpers (caller holds s.mu) ---
 
 // findTaskLocked returns a pointer to the stored task, or nil.

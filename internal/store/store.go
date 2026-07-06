@@ -113,6 +113,12 @@ type Store interface {
 	// is no longer claimed (e.g. its lease lapsed and another agent stole it).
 	CompleteTask(ctx context.Context, workspace, id, agent string, status model.TaskStatus, result string, now time.Time) (model.Task, error)
 
+	// RetryTask requeues a failed task: it transitions failed -> pending and
+	// clears the assignee, result and lease so the task (and anything that
+	// depends on it) becomes claimable again. Returns ErrNotFound if the task
+	// is missing, or ErrTaskConflict if it is not in the failed state.
+	RetryTask(ctx context.Context, workspace, id string, now time.Time) (model.Task, error)
+
 	// CreateMemory persists a memory item. The caller (service layer) sets ID,
 	// scope/owner/status and timestamps.
 	CreateMemory(ctx context.Context, m model.Memory) (model.Memory, error)

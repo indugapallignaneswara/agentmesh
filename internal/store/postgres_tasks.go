@@ -12,11 +12,32 @@ import (
 )
 
 func (s *Postgres) CreateTask(ctx context.Context, t model.Task, dependsOn []string) (model.Task, error) {
+	// Dedupe up front so the returned task matches the Memory store (which
+	// dedupes) and the edge inserts are unique.
+	deps := dedupeStrings(dependsOn)
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return model.Task{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful commit
+
+	// Validate every dependency BEFORE inserting the task. This rejects a
+	// dangling/cross-workspace id — and, matching the Memory store, a
+	// self-dependency (t.ID does not exist yet, so it fails the check) — rather
+	// than silently accepting an edge to the task's own not-yet-committed row.
+	for _, dep := range deps {
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM tasks WHERE id = $1 AND workspace = $2)`,
+			dep, t.Workspace,
+		).Scan(&exists); err != nil {
+			return model.Task{}, err
+		}
+		if !exists {
+			return model.Task{}, fmt.Errorf("%w: %q", ErrInvalidDependency, dep)
+		}
+	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tasks (id, workspace, title, details, status, created_by,
@@ -28,20 +49,7 @@ func (s *Postgres) CreateTask(ctx context.Context, t model.Task, dependsOn []str
 		return model.Task{}, err
 	}
 
-	for _, dep := range dependsOn {
-		// Verify the dependency exists in the same workspace before linking, so
-		// a dangling or cross-workspace id is rejected as ErrInvalidDependency
-		// rather than a raw FK violation.
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM tasks WHERE id = $1 AND workspace = $2)`,
-			dep, t.Workspace,
-		).Scan(&exists); err != nil {
-			return model.Task{}, err
-		}
-		if !exists {
-			return model.Task{}, fmt.Errorf("%w: %q", ErrInvalidDependency, dep)
-		}
+	for _, dep := range deps {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO task_deps (task_id, depends_on_id) VALUES ($1, $2)
 			 ON CONFLICT DO NOTHING`, t.ID, dep,
@@ -53,7 +61,7 @@ func (s *Postgres) CreateTask(ctx context.Context, t model.Task, dependsOn []str
 	if err := tx.Commit(ctx); err != nil {
 		return model.Task{}, err
 	}
-	t.DependsOn = append([]string(nil), dependsOn...)
+	t.DependsOn = deps
 	return t, nil
 }
 
@@ -199,6 +207,54 @@ func (s *Postgres) CompleteTask(ctx context.Context, workspace, id, agent string
 		SET status = $2, result = $3, updated_at = $4, lease_expires_at = NULL
 		WHERE id = $1`,
 		id, string(status), result, now,
+	); err != nil {
+		return model.Task{}, err
+	}
+
+	t, err := scanTask(tx.QueryRow(ctx, taskSelect+` WHERE id = $1`, id))
+	if err != nil {
+		return model.Task{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return model.Task{}, err
+	}
+	deps, err := s.taskDeps(ctx, id)
+	if err != nil {
+		return model.Task{}, err
+	}
+	t.DependsOn = deps
+	return t, nil
+}
+
+func (s *Postgres) RetryTask(ctx context.Context, workspace, id string, now time.Time) (model.Task, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.Task{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful commit
+
+	var curStatus string
+	err = tx.QueryRow(ctx,
+		`SELECT status FROM tasks WHERE id = $1 AND workspace = $2 FOR UPDATE`,
+		id, workspace,
+	).Scan(&curStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Task{}, ErrNotFound
+	}
+	if err != nil {
+		return model.Task{}, err
+	}
+	if curStatus != string(model.TaskFailed) {
+		return model.Task{}, fmt.Errorf("%w: task %q is %s, only failed tasks can be retried",
+			ErrTaskConflict, id, curStatus)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE tasks
+		SET status = 'pending', assigned_agent = '', result = '',
+		    claimed_at = NULL, lease_expires_at = NULL, updated_at = $2
+		WHERE id = $1`,
+		id, now,
 	); err != nil {
 		return model.Task{}, err
 	}

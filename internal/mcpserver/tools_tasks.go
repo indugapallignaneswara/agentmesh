@@ -42,6 +42,12 @@ type completeTaskArgs struct {
 	Done      *bool  `json:"done,omitempty" jsonschema:"true (default) marks completed; false marks failed"`
 }
 
+type retryTaskArgs struct {
+	Workspace string `json:"workspace" jsonschema:"the workspace identifier"`
+	Actor     string `json:"actor" jsonschema:"the member requeuing the task"`
+	ID        string `json:"id" jsonschema:"the failed task id to requeue"`
+}
+
 type getTaskArgs struct {
 	Workspace string `json:"workspace" jsonschema:"the workspace identifier"`
 	ID        string `json:"id" jsonschema:"the task id"`
@@ -89,6 +95,16 @@ func completeTaskHandler(svc *workspace.Service) func(context.Context, *mcp.Call
 			done = *a.Done
 		}
 		t, err := svc.CompleteTask(ctx, a.Workspace, a.ID, a.Agent, a.Result, done)
+		if err != nil {
+			return failTask[model.Task](err)
+		}
+		return ok(t)
+	}
+}
+
+func retryTaskHandler(svc *workspace.Service) func(context.Context, *mcp.CallToolRequest, retryTaskArgs) (*mcp.CallToolResult, model.Task, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, a retryTaskArgs) (*mcp.CallToolResult, model.Task, error) {
+		t, err := svc.RetryTask(ctx, a.Workspace, a.Actor, a.ID)
 		if err != nil {
 			return failTask[model.Task](err)
 		}

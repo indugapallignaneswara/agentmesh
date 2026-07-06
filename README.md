@@ -74,6 +74,7 @@ trade-off.
 | `create_task` | Add a task to the shared board (optional `depends_on`) |
 | `claim_task` | Atomically claim the next eligible task (no double-claim) |
 | `complete_task` | Mark a claimed task completed/failed (assignee only) |
+| `retry_task` | Requeue a failed task (failed → pending); unblocks its dependents |
 | `get_task` / `list_tasks` | Inspect tasks (filter by status) |
 | `memory_write` | Store knowledge with provenance — `private` (immediate, own-eyes-only) or `shared` (review-gated) |
 | `memory_search` | Ranked full-text search over your private + approved shared memories |

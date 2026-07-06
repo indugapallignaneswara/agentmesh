@@ -47,6 +47,9 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("TaskLeaseExpiryWorkStealing", func(t *testing.T) { testTaskLeaseExpiry(t, newStore(t)) })
 	t.Run("TaskNoClaimableWhenEmpty", func(t *testing.T) { testTaskNoClaimable(t, newStore(t)) })
 	t.Run("TaskListByStatus", func(t *testing.T) { testTaskListByStatus(t, newStore(t)) })
+	t.Run("TaskCreateDedupesDeps", func(t *testing.T) { testTaskCreateDedupesDeps(t, newStore(t)) })
+	t.Run("TaskRetryUnblocksDependents", func(t *testing.T) { testTaskRetryUnblocksDependents(t, newStore(t)) })
+	t.Run("TaskRetryOnlyFailed", func(t *testing.T) { testTaskRetryOnlyFailed(t, newStore(t)) })
 
 	t.Run("MemoryCreateGet", func(t *testing.T) { testMemoryCreateGet(t, newStore(t)) })
 	t.Run("MemorySearchVisibility", func(t *testing.T) { testMemorySearchVisibility(t, newStore(t)) })
@@ -465,6 +468,79 @@ func testTaskListByStatus(t *testing.T, s store.Store) {
 	mustNoErr(t, err)
 	if len(pending2) != 2 {
 		t.Fatalf("pending after lease expiry = %d, want 2", len(pending2))
+	}
+}
+
+// testTaskCreateDedupesDeps guards the store-divergence fix: both stores must
+// dedupe the returned DependsOn (previously Postgres returned duplicates).
+func testTaskCreateDedupesDeps(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	mkTask(t, s, "ws1", "dep", "dependency")
+	got, err := s.CreateTask(ctx, model.Task{
+		ID: "main", Workspace: "ws1", Title: "m", Status: model.TaskPending,
+		CreatedBy: "c", CreatedAt: base, UpdatedAt: base,
+	}, []string{"dep", "dep", "dep"})
+	mustNoErr(t, err)
+	if len(got.DependsOn) != 1 || got.DependsOn[0] != "dep" {
+		t.Fatalf("DependsOn = %v, want [dep] (deduped)", got.DependsOn)
+	}
+	reread, err := s.GetTask(ctx, "ws1", "main")
+	mustNoErr(t, err)
+	if len(reread.DependsOn) != 1 {
+		t.Fatalf("reread DependsOn = %v, want single edge", reread.DependsOn)
+	}
+}
+
+// testTaskRetryUnblocksDependents is the escape-hatch for the failed-dependency
+// dead-end: retrying a failed dependency requeues it and unblocks its dependents.
+func testTaskRetryUnblocksDependents(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	mkTask(t, s, "ws1", "dep", "must pass")
+	mkTask(t, s, "ws1", "main", "blocked", "dep")
+
+	// Claim and FAIL dep -> main is now permanently unclaimable.
+	if _, err := s.ClaimNextTask(ctx, "ws1", "a1", base.Add(time.Minute), oneMin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteTask(ctx, "ws1", "dep", "a1", model.TaskFailed, "boom", base.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimNextTask(ctx, "ws1", "a2", base.Add(3*time.Minute), oneMin); err != store.ErrNoClaimableTask {
+		t.Fatalf("with dep failed, claim = %v, want ErrNoClaimableTask", err)
+	}
+
+	// Retry dep -> pending; now dep is claimable again.
+	retried, err := s.RetryTask(ctx, "ws1", "dep", base.Add(4*time.Minute))
+	mustNoErr(t, err)
+	if retried.Status != model.TaskPending || retried.AssignedAgent != "" || retried.Result != "" {
+		t.Fatalf("retried = %+v, want pending with cleared assignee/result", retried)
+	}
+	got, err := s.ClaimNextTask(ctx, "ws1", "a3", base.Add(5*time.Minute), oneMin)
+	mustNoErr(t, err)
+	if got.ID != "dep" {
+		t.Fatalf("claimed %q after retry, want dep", got.ID)
+	}
+	// Complete dep -> main finally claimable.
+	if _, err := s.CompleteTask(ctx, "ws1", "dep", "a3", model.TaskCompleted, "ok", base.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ClaimNextTask(ctx, "ws1", "a4", base.Add(7*time.Minute), oneMin)
+	mustNoErr(t, err)
+	if got.ID != "main" {
+		t.Fatalf("claimed %q, want main after dep completed via retry", got.ID)
+	}
+}
+
+func testTaskRetryOnlyFailed(t *testing.T, s store.Store) {
+	ctx := context.Background()
+	mkTask(t, s, "ws1", "t1", "pending task")
+	// Retrying a pending (not failed) task is a conflict.
+	if _, err := s.RetryTask(ctx, "ws1", "t1", base); !errorsIs(err, store.ErrTaskConflict) {
+		t.Fatalf("retry pending err = %v, want ErrTaskConflict", err)
+	}
+	// Retrying a missing task is not-found.
+	if _, err := s.RetryTask(ctx, "ws1", "ghost", base); err != store.ErrNotFound {
+		t.Fatalf("retry missing err = %v, want ErrNotFound", err)
 	}
 }
 

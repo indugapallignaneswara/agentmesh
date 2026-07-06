@@ -14,7 +14,7 @@ import (
 // cmdTask dispatches the `task` subcommand group.
 func cmdTask(ctx context.Context, cl *client.Client, out *output, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("task requires a subcommand: create|claim|complete|get|list")
+		return fmt.Errorf("task requires a subcommand: create|claim|complete|retry|get|list")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -24,6 +24,8 @@ func cmdTask(ctx context.Context, cl *client.Client, out *output, args []string)
 		return cmdTaskClaim(ctx, cl, out, rest)
 	case "complete":
 		return cmdTaskComplete(ctx, cl, out, rest)
+	case "retry":
+		return cmdTaskRetry(ctx, cl, out, rest)
 	case "get":
 		return cmdTaskGet(ctx, cl, out, rest)
 	case "list":
@@ -31,6 +33,26 @@ func cmdTask(ctx context.Context, cl *client.Client, out *output, args []string)
 	default:
 		return fmt.Errorf("unknown task subcommand %q", sub)
 	}
+}
+
+func cmdTaskRetry(ctx context.Context, cl *client.Client, out *output, args []string) error {
+	fs := flag.NewFlagSet("task retry", flag.ContinueOnError)
+	ws := stringFlag(fs, "workspace", "AGENTMESH_WORKSPACE", "", "workspace id")
+	actor := stringFlag(fs, "actor", "AGENTMESH_MEMBER", "", "requesting member")
+	id := fs.String("id", "", "failed task id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	raw, err := cl.Raw(ctx, "retry_task", map[string]any{"workspace": *ws, "actor": *actor, "id": *id})
+	if err != nil {
+		return err
+	}
+	out.emit(raw, func(w io.Writer, b []byte) {
+		var r struct{ ID, Status string }
+		_ = json.Unmarshal(b, &r)
+		fmt.Fprintf(w, "task %s -> %s (requeued)\n", r.ID, r.Status)
+	})
+	return nil
 }
 
 func cmdTaskCreate(ctx context.Context, cl *client.Client, out *output, args []string) error {

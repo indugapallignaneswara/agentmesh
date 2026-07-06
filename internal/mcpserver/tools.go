@@ -67,6 +67,11 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	}, completeTaskHandler(svc))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "retry_task",
+		Description: "Requeue a failed task (failed -> pending), clearing its assignee and result. This also unblocks any task that depended on it. Only works on a task currently in the failed state.",
+	}, retryTaskHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_task",
 		Description: "Fetch a single task by id, including its status, assignee and dependencies.",
 	}, getTaskHandler(svc))

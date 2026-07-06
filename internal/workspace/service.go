@@ -34,6 +34,7 @@ const (
 	EventTaskCreated   = "task_created"
 	EventTaskClaimed   = "task_claimed"
 	EventTaskCompleted = "task_completed"
+	EventTaskRetried   = "task_retried"
 )
 
 // nameRe constrains workspace and member identifiers. They double as NATS
@@ -48,6 +49,16 @@ const (
 	defaultTaskLease   = 5 * time.Minute
 	maxTaskTitle       = 512
 	maxDependsOn       = 64
+
+	// Input size caps (bytes). These bound the per-call write amplification —
+	// a body/payload is fanned out to one delivery row per recipient and
+	// replayed on every read — so an agent (agents are loops) cannot exhaust
+	// storage or blow other members' context windows with one oversized call.
+	maxMessageBody   = 64 * 1024
+	maxTaskDetails   = 64 * 1024
+	maxTaskResult    = 64 * 1024
+	maxEventPayload  = 64 * 1024
+	maxAgentCardSize = 64 * 1024
 )
 
 // Service is the coordination workspace API.
@@ -117,6 +128,9 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 	if err := auth.CheckKind(ctx, kind); err != nil {
 		return model.Member{}, err
 	}
+	if len(agentCard) > maxAgentCardSize {
+		return model.Member{}, fmt.Errorf("%w: agent_card must be at most %d bytes", ErrInvalidInput, maxAgentCardSize)
+	}
 	if len(agentCard) > 0 && !json.Valid(agentCard) {
 		return model.Member{}, fmt.Errorf("%w: agent_card is not valid JSON", ErrInvalidInput)
 	}
@@ -159,8 +173,8 @@ func (s *Service) SendMessage(ctx context.Context, workspace, from, to, body str
 	if err := validName("to", to); err != nil {
 		return model.Message{}, err
 	}
-	if body == "" {
-		return model.Message{}, fmt.Errorf("%w: body is required", ErrInvalidInput)
+	if body == "" || len(body) > maxMessageBody {
+		return model.Message{}, fmt.Errorf("%w: body must be 1-%d bytes", ErrInvalidInput, maxMessageBody)
 	}
 	// Any-to-any addressing implies two distinct parties; a self-addressed
 	// direct message is almost always a mistake.
@@ -202,8 +216,8 @@ func (s *Service) Broadcast(ctx context.Context, workspace, from, body string) (
 	if err := validName("from", from); err != nil {
 		return model.Message{}, 0, err
 	}
-	if body == "" {
-		return model.Message{}, 0, fmt.Errorf("%w: body is required", ErrInvalidInput)
+	if body == "" || len(body) > maxMessageBody {
+		return model.Message{}, 0, fmt.Errorf("%w: body must be 1-%d bytes", ErrInvalidInput, maxMessageBody)
 	}
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
 		return model.Message{}, 0, err
@@ -290,6 +304,9 @@ func (s *Service) PublishEvent(ctx context.Context, workspace, source, eventType
 	}
 	if eventType == "" || len(eventType) > 128 {
 		return model.Event{}, fmt.Errorf("%w: type must be 1-128 characters", ErrInvalidInput)
+	}
+	if len(payload) > maxEventPayload {
+		return model.Event{}, fmt.Errorf("%w: payload must be at most %d bytes", ErrInvalidInput, maxEventPayload)
 	}
 	if len(payload) > 0 && !json.Valid(payload) {
 		return model.Event{}, fmt.Errorf("%w: payload is not valid JSON", ErrInvalidInput)
