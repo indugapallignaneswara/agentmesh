@@ -17,9 +17,14 @@ import (
 // in-memory transport, exercising the real tool-dispatch path end to end.
 func connect(t *testing.T) (*mcp.ClientSession, context.Context) {
 	t.Helper()
-	ctx := context.Background()
+	return connectSvc(t, workspace.New(store.NewMemory(), bus.NewNoop()))
+}
 
-	svc := workspace.New(store.NewMemory(), bus.NewNoop())
+// connectSvc wires an MCP client to a server over the given service, so tests
+// can vary service options (e.g. implicit-room mode).
+func connectSvc(t *testing.T, svc *workspace.Service) (*mcp.ClientSession, context.Context) {
+	t.Helper()
+	ctx := context.Background()
 	srv := mcpserver.NewServer(svc, "test")
 
 	clientT, serverT := mcp.NewInMemoryTransports()

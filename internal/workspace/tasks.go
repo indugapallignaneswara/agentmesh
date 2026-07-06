@@ -32,6 +32,9 @@ func (s *Service) CreateTask(ctx context.Context, workspace, creator, title, det
 	if err := auth.CheckActor(ctx, workspace, creator); err != nil {
 		return model.Task{}, err
 	}
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+		return model.Task{}, err
+	}
 	if err := s.requireMember(ctx, workspace, creator); err != nil {
 		return model.Task{}, err
 	}

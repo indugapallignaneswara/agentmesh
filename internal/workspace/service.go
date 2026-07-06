@@ -26,6 +26,10 @@ import (
 // can map each to the appropriate client-facing error.
 var ErrInvalidInput = errors.New("invalid input")
 
+// ErrRoomClosed is returned by write paths when the target room is closed. The
+// room stays readable so humans can review it, but new content is rejected.
+var ErrRoomClosed = errors.New("room is closed")
+
 // Event type names recorded in the episodic log.
 const (
 	EventMemberJoined  = "member_joined"
@@ -35,6 +39,9 @@ const (
 	EventTaskClaimed   = "task_claimed"
 	EventTaskCompleted = "task_completed"
 	EventTaskRetried   = "task_retried"
+	EventRoomCreated   = "room_created"
+	EventRoomClosed    = "room_closed"
+	EventRoomReopened  = "room_reopened"
 )
 
 // nameRe constrains workspace and member identifiers. They double as NATS
@@ -63,13 +70,14 @@ const (
 
 // Service is the coordination workspace API.
 type Service struct {
-	store       store.Store
-	bus         bus.Bus
-	now         func() time.Time
-	newID       func() string
-	presenceTTL time.Duration
-	taskLease   time.Duration
-	log         *slog.Logger
+	store        store.Store
+	bus          bus.Bus
+	now          func() time.Time
+	newID        func() string
+	presenceTTL  time.Duration
+	taskLease    time.Duration
+	implicitRoom bool // auto-create a room on first join (back-compat / demo mode)
+	log          *slog.Logger
 }
 
 // Option configures a Service.
@@ -92,16 +100,22 @@ func WithLogger(l *slog.Logger) Option { return func(s *Service) { s.log = l } }
 // another agent (work-stealing on a dead assignee).
 func WithTaskLease(d time.Duration) Option { return func(s *Service) { s.taskLease = d } }
 
+// WithImplicitRooms controls whether joining a non-existent room auto-creates
+// it (open). True preserves the pre-v0.2 behaviour and keeps the zero-setup
+// demo working; false means rooms must be created explicitly with RoomCreate.
+func WithImplicitRooms(v bool) Option { return func(s *Service) { s.implicitRoom = v } }
+
 // New constructs a Service over the given store and bus.
 func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 	s := &Service{
-		store:       st,
-		bus:         b,
-		now:         time.Now,
-		newID:       func() string { return uuid.NewString() },
-		presenceTTL: defaultPresenceTTL,
-		taskLease:   defaultTaskLease,
-		log:         slog.Default(),
+		store:        st,
+		bus:          b,
+		now:          time.Now,
+		newID:        func() string { return uuid.NewString() },
+		presenceTTL:  defaultPresenceTTL,
+		taskLease:    defaultTaskLease,
+		implicitRoom: true, // default preserves pre-v0.2 behaviour
+		log:          slog.Default(),
 	}
 	for _, o := range opts {
 		o(s)
@@ -130,6 +144,10 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 	}
 	if len(agentCard) > maxAgentCardSize {
 		return model.Member{}, fmt.Errorf("%w: agent_card must be at most %d bytes", ErrInvalidInput, maxAgentCardSize)
+	}
+	// The room must exist and be open to join (implicit mode lazily creates it).
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+		return model.Member{}, err
 	}
 	if len(agentCard) > 0 && !json.Valid(agentCard) {
 		return model.Member{}, fmt.Errorf("%w: agent_card is not valid JSON", ErrInvalidInput)
@@ -184,6 +202,9 @@ func (s *Service) SendMessage(ctx context.Context, workspace, from, to, body str
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
 		return model.Message{}, err
 	}
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+		return model.Message{}, err
+	}
 	if err := s.requireMember(ctx, workspace, from); err != nil {
 		return model.Message{}, err
 	}
@@ -220,6 +241,9 @@ func (s *Service) Broadcast(ctx context.Context, workspace, from, body string) (
 		return model.Message{}, 0, fmt.Errorf("%w: body must be 1-%d bytes", ErrInvalidInput, maxMessageBody)
 	}
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
+		return model.Message{}, 0, err
+	}
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
 		return model.Message{}, 0, err
 	}
 	if err := s.requireMember(ctx, workspace, from); err != nil {

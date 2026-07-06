@@ -39,6 +39,9 @@ var (
 	// version is stale (someone else wrote first) or when creating an artifact
 	// that already exists. The caller should re-read, merge, and retry.
 	ErrArtifactConflict = errors.New("artifact version conflict")
+
+	// ErrRoomExists is returned by CreateWorkspace when the room already exists.
+	ErrRoomExists = errors.New("room already exists")
 )
 
 // Store is the authoritative system of record for the workspace. All timestamps
@@ -142,6 +145,26 @@ type Store interface {
 	// ErrMemoryConflict if it is not a shared, still-pending item (the service
 	// layer enforces who may review).
 	ReviewMemory(ctx context.Context, workspace, id, reviewer string, approve bool, note string, now time.Time) (model.Memory, error)
+
+	// CreateWorkspace inserts a new room. Returns ErrRoomExists if a room with
+	// that name already exists.
+	CreateWorkspace(ctx context.Context, w model.Workspace) (model.Workspace, error)
+
+	// GetWorkspace returns a room or ErrNotFound.
+	GetWorkspace(ctx context.Context, name string) (model.Workspace, error)
+
+	// EnsureWorkspace lazily creates a room with default (open) status if it
+	// does not exist, and returns the current row. It is idempotent and backs
+	// implicit-workspace mode (auto-create on first join).
+	EnsureWorkspace(ctx context.Context, name string, now time.Time) (model.Workspace, error)
+
+	// ListWorkspaces returns all rooms ordered by name. If statuses is
+	// non-empty, only rooms in those statuses are returned.
+	ListWorkspaces(ctx context.Context, statuses []model.WorkspaceStatus) ([]model.Workspace, error)
+
+	// SetWorkspaceStatus transitions a room's status (e.g. open->closed).
+	// actor and now are recorded on a close. Returns ErrNotFound if absent.
+	SetWorkspaceStatus(ctx context.Context, name string, status model.WorkspaceStatus, actor string, now time.Time) (model.Workspace, error)
 
 	// CreateAuthToken persists a token record (hash only; the caller keeps the
 	// secret). ID and TokenHash must be unique.

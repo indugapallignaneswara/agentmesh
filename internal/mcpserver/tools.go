@@ -83,6 +83,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 
 	registerMemoryTools(s, svc)
 	registerArtifactTools(s, svc)
+	registerRoomTools(s, svc)
 }
 
 // --- tool argument and result types ---
@@ -262,7 +263,7 @@ func ok[T any](v T) (*mcp.CallToolResult, T, error) {
 func fail[T any](err error) (*mcp.CallToolResult, T, error) {
 	var zero T
 	if errors.Is(err, workspace.ErrInvalidInput) || errors.Is(err, store.ErrNotFound) ||
-		errors.Is(err, auth.ErrForbidden) {
+		errors.Is(err, auth.ErrForbidden) || errors.Is(err, workspace.ErrRoomClosed) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

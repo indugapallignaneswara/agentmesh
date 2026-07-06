@@ -145,7 +145,8 @@ func failTask[T any](err error) (*mcp.CallToolResult, T, error) {
 		errors.Is(err, store.ErrNotFound) ||
 		errors.Is(err, store.ErrInvalidDependency) ||
 		errors.Is(err, store.ErrTaskConflict) ||
-		errors.Is(err, auth.ErrForbidden) {
+		errors.Is(err, auth.ErrForbidden) ||
+		errors.Is(err, workspace.ErrRoomClosed) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

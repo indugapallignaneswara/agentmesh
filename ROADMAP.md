@@ -26,7 +26,7 @@ principal distinction is human/agent — no roles, no moderation.
 
 | # | Deliverable | Sketch |
 |---|---|---|
-| 1 | **Room lifecycle** | `workspaces` table (status open/closed/archived, created_by); `room_create` / `room_close` / `room_list` tools (human-gated); writes into a closed room rejected; implicit-workspace mode kept behind a flag for the zero-setup demo |
+| 1 | **Room lifecycle** ✅ | `workspaces` table + `room_create`/`room_close`/`room_reopen`/`room_list` (human-gated); writes into a closed room rejected while reads stay open; `AGENTMESH_IMPLICIT_WORKSPACES` flag keeps the zero-setup demo. Shipped. |
 | 2 | **Roles & moderation** | `role` on members (owner/moderator/member) + `bans` table; `room_kick` / `room_ban` / `room_set_role`; `RemoveMember` purges undelivered rows; role carried on `auth.Principal` |
 | 3 | **Human message history** | messages are already durable — add `ListMessages` + `message_history` tool (moderator-gated) + a Messages panel in `/ui`; agents keep consume-once semantics |
 | 4 | **Invites / in-band admission** | `invites` table (hashed codes, max-uses, expiry); join-with-code mints the bearer token via the existing auth machinery — no more DB-shell admission |

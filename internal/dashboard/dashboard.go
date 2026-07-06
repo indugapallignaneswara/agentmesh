@@ -22,18 +22,22 @@ var uiHTML []byte
 
 // overview is the JSON payload the page polls.
 type overview struct {
-	Workspace   string           `json:"workspace"`
-	Presence    []model.Member   `json:"presence"`
-	Tasks       []model.Task     `json:"tasks"`
-	Events      []model.Event    `json:"events"`
-	Cursor      int64            `json:"cursor"`
-	MemoryQueue []model.Memory   `json:"memory_queue"`
-	Artifacts   []model.Artifact `json:"artifacts"`
+	Workspace   string            `json:"workspace"`
+	Rooms       []model.Workspace `json:"rooms"`
+	Presence    []model.Member    `json:"presence"`
+	Tasks       []model.Task      `json:"tasks"`
+	Events      []model.Event     `json:"events"`
+	Cursor      int64             `json:"cursor"`
+	MemoryQueue []model.Memory    `json:"memory_queue"`
+	Artifacts   []model.Artifact  `json:"artifacts"`
 }
 
 // normalize replaces nil slices with empty ones so every list field in the
 // JSON response is an array, never null.
 func (o *overview) normalize() {
+	if o.Rooms == nil {
+		o.Rooms = []model.Workspace{}
+	}
 	if o.Presence == nil {
 		o.Presence = []model.Member{}
 	}
@@ -68,6 +72,22 @@ func Handler(svc *workspace.Service) http.Handler {
 
 		ov := overview{Workspace: ws}
 		var err error
+
+		// The room list is server-wide and drives the picker, so it is fetched
+		// regardless of whether a workspace is selected yet.
+		if ov.Rooms, err = svc.RoomList(ctx, nil); err != nil {
+			httpErr(w, err)
+			return
+		}
+		// With no room selected, return just the room list so the picker can
+		// populate on first load.
+		if ws == "" {
+			ov.normalize()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(ov)
+			return
+		}
+
 		if ov.Presence, err = svc.Presence(ctx, ws); err != nil {
 			httpErr(w, err)
 			return

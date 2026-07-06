@@ -32,6 +32,10 @@ type Config struct {
 	// TaskLease is how long a task claim is held before another agent may steal
 	// it (work-stealing on a dead assignee).
 	TaskLease time.Duration
+	// ImplicitWorkspaces controls whether joining a non-existent room auto-
+	// creates it. True (default) preserves the zero-setup demo; false requires
+	// rooms to be created explicitly with room_create.
+	ImplicitWorkspaces bool
 	// LogLevel is one of debug, info, warn, error.
 	LogLevel string
 }
@@ -39,14 +43,15 @@ type Config struct {
 // Load reads configuration from environment variables, applying defaults.
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:    env("AGENTMESH_HTTP_ADDR", ":8080"),
-		Store:       env("AGENTMESH_STORE", "postgres"),
-		Auth:        env("AGENTMESH_AUTH", "off"),
-		DatabaseURL: env("AGENTMESH_DATABASE_URL", "postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable"),
-		NATSURL:     env("AGENTMESH_NATS_URL", ""),
-		PresenceTTL: 60 * time.Second,
-		TaskLease:   5 * time.Minute,
-		LogLevel:    env("AGENTMESH_LOG_LEVEL", "info"),
+		HTTPAddr:           env("AGENTMESH_HTTP_ADDR", ":8080"),
+		Store:              env("AGENTMESH_STORE", "postgres"),
+		Auth:               env("AGENTMESH_AUTH", "off"),
+		DatabaseURL:        env("AGENTMESH_DATABASE_URL", "postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable"),
+		NATSURL:            env("AGENTMESH_NATS_URL", ""),
+		PresenceTTL:        60 * time.Second,
+		TaskLease:          5 * time.Minute,
+		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
+		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}
 	switch cfg.Store {
 	case "postgres", "memory":
@@ -83,4 +88,19 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool reads a boolean env var; "false"/"0"/"no" are false, anything else
+// non-empty is true, and unset yields def.
+func envBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return true
+	}
 }

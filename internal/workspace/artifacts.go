@@ -37,6 +37,9 @@ func (s *Service) ArtifactPut(ctx context.Context, workspace, author, name, cont
 	if err := auth.CheckActor(ctx, workspace, author); err != nil {
 		return model.Artifact{}, err
 	}
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+		return model.Artifact{}, err
+	}
 	if err := s.requireMember(ctx, workspace, author); err != nil {
 		return model.Artifact{}, err
 	}

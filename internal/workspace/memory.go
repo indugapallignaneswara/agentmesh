@@ -50,6 +50,9 @@ func (s *Service) MemoryWrite(ctx context.Context, workspace, author string, sco
 	if err := auth.CheckActor(ctx, workspace, author); err != nil {
 		return model.Memory{}, err
 	}
+	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+		return model.Memory{}, err
+	}
 	if err := s.requireMember(ctx, workspace, author); err != nil {
 		return model.Memory{}, err
 	}

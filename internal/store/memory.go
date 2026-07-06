@@ -23,6 +23,7 @@ type Memory struct {
 	mems     []model.Memory
 	arts     map[string]model.Artifact // key: workspace + "\x00" + name
 	tokens   []model.AuthToken
+	rooms    map[string]model.Workspace // key: room name
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises
@@ -50,6 +51,7 @@ func NewMemory() *Memory {
 	return &Memory{
 		members: make(map[string]model.Member),
 		arts:    make(map[string]model.Artifact),
+		rooms:   make(map[string]model.Workspace),
 	}
 }
 

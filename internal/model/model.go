@@ -7,6 +7,33 @@ import (
 	"time"
 )
 
+// WorkspaceStatus is the lifecycle state of a room. Open rooms accept joins
+// and new content; closed rooms reject new content (messages, tasks, memory,
+// artifact writes) while remaining readable so humans can review what
+// happened. Reopening is allowed — closing is a moderation action, not a
+// deletion.
+type WorkspaceStatus string
+
+const (
+	WorkspaceOpen   WorkspaceStatus = "open"
+	WorkspaceClosed WorkspaceStatus = "closed"
+)
+
+// Workspace is a room: the first-class, human-owned container that members
+// join and coordinate in. Before v0.2 workspaces existed only implicitly as a
+// side effect of joining; now a room can be explicitly created, listed and
+// closed. CreatedBy is the human owner; ClosedAt/ClosedBy record the last
+// close (nil while open).
+type Workspace struct {
+	Name      string          `json:"name"`
+	Status    WorkspaceStatus `json:"status"`
+	CreatedBy string          `json:"created_by"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	ClosedBy  string          `json:"closed_by,omitempty"`
+	ClosedAt  *time.Time      `json:"closed_at,omitempty"`
+}
+
 // Kind distinguishes the two principal types that participate in a workspace.
 type Kind string
 

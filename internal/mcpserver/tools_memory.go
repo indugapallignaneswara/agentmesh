@@ -133,7 +133,8 @@ func failMemory[T any](err error) (*mcp.CallToolResult, T, error) {
 	if errors.Is(err, workspace.ErrInvalidInput) ||
 		errors.Is(err, store.ErrNotFound) ||
 		errors.Is(err, store.ErrMemoryConflict) ||
-		errors.Is(err, auth.ErrForbidden) {
+		errors.Is(err, auth.ErrForbidden) ||
+		errors.Is(err, workspace.ErrRoomClosed) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

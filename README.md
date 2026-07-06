@@ -80,6 +80,7 @@ trade-off.
 | `memory_search` | Ranked full-text search over your private + approved shared memories |
 | `memory_queue` / `memory_review` | Human-only: inspect and approve/reject pending shared submissions |
 | `get_artifact` / `update_artifact` / `list_artifacts` | Co-edited docs with optimistic concurrency — stale writes get a conflict + merge guidance, never lost updates |
+| `room_create` / `room_close` / `room_reopen` / `room_list` | Room lifecycle — humans own rooms; a closed room rejects writes but stays readable |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so
@@ -115,6 +116,7 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 | `AGENTMESH_HTTP_ADDR` | `:8080` | HTTP listen address |
 | `AGENTMESH_STORE` | `postgres` | `postgres` (durable) or `memory` (ephemeral, zero-dependency — for demos/trials) |
 | `AGENTMESH_AUTH` | `off` | `off` (trusted network only) or `token` (bearer tokens required; needs postgres) |
+| `AGENTMESH_IMPLICIT_WORKSPACES` | `true` | `true` auto-creates a room on first join (zero-setup demo); `false` requires `room_create` first |
 | `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (used when store is `postgres`) |
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
 | `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
