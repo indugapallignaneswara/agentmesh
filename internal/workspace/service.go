@@ -59,12 +59,14 @@ const (
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 const (
-	defaultPresenceTTL = 60 * time.Second
-	defaultEventLimit  = 100
-	maxEventLimit      = 1000
-	defaultTaskLease   = 5 * time.Minute
-	maxTaskTitle       = 512
-	maxDependsOn       = 64
+	defaultPresenceTTL   = 60 * time.Second
+	defaultEventLimit    = 100
+	maxEventLimit        = 1000
+	defaultTaskLease     = 5 * time.Minute
+	defaultAckVisibility = 60 * time.Second
+	maxAckIDs            = 500
+	maxTaskTitle         = 512
+	maxDependsOn         = 64
 
 	// Input size caps (bytes). These bound the per-call write amplification —
 	// a body/payload is fanned out to one delivery row per recipient and
@@ -79,14 +81,15 @@ const (
 
 // Service is the coordination workspace API.
 type Service struct {
-	store        store.Store
-	bus          bus.Bus
-	now          func() time.Time
-	newID        func() string
-	presenceTTL  time.Duration
-	taskLease    time.Duration
-	implicitRoom bool // auto-create a room on first join (back-compat / demo mode)
-	log          *slog.Logger
+	store         store.Store
+	bus           bus.Bus
+	now           func() time.Time
+	newID         func() string
+	presenceTTL   time.Duration
+	taskLease     time.Duration
+	ackVisibility time.Duration // lease window for ack-mode inbox reads
+	implicitRoom  bool          // auto-create a room on first join (back-compat / demo mode)
+	log           *slog.Logger
 }
 
 // Option configures a Service.
@@ -109,6 +112,10 @@ func WithLogger(l *slog.Logger) Option { return func(s *Service) { s.log = l } }
 // another agent (work-stealing on a dead assignee).
 func WithTaskLease(d time.Duration) Option { return func(s *Service) { s.taskLease = d } }
 
+// WithAckVisibility sets how long an ack-mode inbox lease lasts before an
+// unacknowledged message is redelivered.
+func WithAckVisibility(d time.Duration) Option { return func(s *Service) { s.ackVisibility = d } }
+
 // WithImplicitRooms controls whether joining a non-existent room auto-creates
 // it (open). True preserves the pre-v0.2 behaviour and keeps the zero-setup
 // demo working; false means rooms must be created explicitly with RoomCreate.
@@ -117,14 +124,15 @@ func WithImplicitRooms(v bool) Option { return func(s *Service) { s.implicitRoom
 // New constructs a Service over the given store and bus.
 func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 	s := &Service{
-		store:        st,
-		bus:          b,
-		now:          time.Now,
-		newID:        func() string { return uuid.NewString() },
-		presenceTTL:  defaultPresenceTTL,
-		taskLease:    defaultTaskLease,
-		implicitRoom: true, // default preserves pre-v0.2 behaviour
-		log:          slog.Default(),
+		store:         st,
+		bus:           b,
+		now:           time.Now,
+		newID:         func() string { return uuid.NewString() },
+		presenceTTL:   defaultPresenceTTL,
+		taskLease:     defaultTaskLease,
+		ackVisibility: defaultAckVisibility,
+		implicitRoom:  true, // default preserves pre-v0.2 behaviour
+		log:           slog.Default(),
 	}
 	for _, o := range opts {
 		o(s)

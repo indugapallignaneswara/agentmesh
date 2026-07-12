@@ -86,6 +86,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	registerRoomTools(s, svc)
 	registerModerationTools(s, svc)
 	registerInviteTools(s, svc)
+	registerAckTools(s, svc)
 }
 
 // --- tool argument and result types ---
@@ -121,6 +122,7 @@ type sendMessageArgs struct {
 type readInboxArgs struct {
 	Workspace string `json:"workspace" jsonschema:"the workspace identifier"`
 	Member    string `json:"member" jsonschema:"the member whose inbox to read"`
+	AckMode   bool   `json:"ack_mode,omitempty" jsonschema:"if true, messages are leased (redelivered unless acknowledged with ack_messages) instead of consumed — at-least-once delivery"`
 }
 
 type readInboxResult struct {
@@ -207,7 +209,11 @@ func sendMessageHandler(svc *workspace.Service) func(context.Context, *mcp.CallT
 
 func readInboxHandler(svc *workspace.Service) func(context.Context, *mcp.CallToolRequest, readInboxArgs) (*mcp.CallToolResult, readInboxResult, error) {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, a readInboxArgs) (*mcp.CallToolResult, readInboxResult, error) {
-		msgs, err := svc.ReadInbox(ctx, a.Workspace, a.Member)
+		read := svc.ReadInbox
+		if a.AckMode {
+			read = svc.ReadInboxAck
+		}
+		msgs, err := read(ctx, a.Workspace, a.Member)
 		if err != nil {
 			return fail[readInboxResult](err)
 		}

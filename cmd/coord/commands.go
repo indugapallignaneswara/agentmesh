@@ -148,10 +148,15 @@ func cmdInbox(ctx context.Context, cl *client.Client, out *output, args []string
 	fs := flag.NewFlagSet("inbox", flag.ContinueOnError)
 	ws := stringFlag(fs, "workspace", "AGENTMESH_WORKSPACE", "", "workspace id")
 	member := stringFlag(fs, "member", "AGENTMESH_MEMBER", "", "whose inbox to read")
+	ack := fs.Bool("ack", false, "lease instead of consume (at-least-once; finalise with 'coord ack')")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	raw, err := cl.Raw(ctx, "read_inbox", map[string]any{"workspace": *ws, "member": *member})
+	a := map[string]any{"workspace": *ws, "member": *member}
+	if *ack {
+		a["ack_mode"] = true
+	}
+	raw, err := cl.Raw(ctx, "read_inbox", a)
 	if err != nil {
 		return err
 	}
@@ -159,6 +164,7 @@ func cmdInbox(ctx context.Context, cl *client.Client, out *output, args []string
 		var r struct {
 			Count    int `json:"count"`
 			Messages []struct {
+				ID     string `json:"id"`
 				Sender string `json:"sender"`
 				Kind   string `json:"kind"`
 				Body   string `json:"body"`
@@ -172,6 +178,9 @@ func cmdInbox(ctx context.Context, cl *client.Client, out *output, args []string
 		fmt.Fprintf(w, "%d new message(s):\n", r.Count)
 		for _, m := range r.Messages {
 			fmt.Fprintf(w, "  [%s] %s: %s\n", m.Kind, m.Sender, m.Body)
+			if *ack {
+				fmt.Fprintf(w, "      ack id: %s\n", m.ID)
+			}
 		}
 	})
 	return nil

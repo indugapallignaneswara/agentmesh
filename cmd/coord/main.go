@@ -96,6 +96,8 @@ dispatch:
 		return cmdSend(ctx, cl, out, rest)
 	case "inbox":
 		return cmdInbox(ctx, cl, out, rest)
+	case "ack":
+		return cmdAck(ctx, cl, out, rest)
 	case "broadcast":
 		return cmdBroadcast(ctx, cl, out, rest)
 	case "publish":
@@ -145,7 +147,8 @@ Commands:
   join       Join or refresh workspace membership
   presence   List members active now
   send       Send a direct message to one member (any-to-any)
-  inbox      Read and consume your undelivered messages
+  inbox      Read your undelivered messages (--ack leases them: at-least-once)
+  ack        Finalise messages from an ack-mode read (--ids id1,id2)
   broadcast  Send a message to all other members
   publish    Append an event to the observation log
   subscribe  Read events after a cursor

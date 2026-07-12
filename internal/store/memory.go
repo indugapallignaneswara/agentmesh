@@ -42,10 +42,11 @@ type memMessage struct {
 }
 
 type memDelivery struct {
-	workspace   string
-	messageID   string
-	recipient   string
-	deliveredAt *time.Time
+	workspace     string
+	messageID     string
+	recipient     string
+	deliveredAt   *time.Time
+	inFlightUntil *time.Time // ack-mode lease deadline; nil = not in flight
 }
 
 // NewMemory returns an empty in-memory store.

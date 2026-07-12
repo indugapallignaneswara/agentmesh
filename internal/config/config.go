@@ -32,6 +32,9 @@ type Config struct {
 	// TaskLease is how long a task claim is held before another agent may steal
 	// it (work-stealing on a dead assignee).
 	TaskLease time.Duration
+	// AckVisibility is how long an ack-mode inbox lease lasts before an
+	// unacknowledged message is redelivered.
+	AckVisibility time.Duration
 	// ImplicitWorkspaces controls whether joining a non-existent room auto-
 	// creates it. True (default) preserves the zero-setup demo; false requires
 	// rooms to be created explicitly with room_create.
@@ -50,6 +53,7 @@ func Load() (Config, error) {
 		NATSURL:            env("AGENTMESH_NATS_URL", ""),
 		PresenceTTL:        60 * time.Second,
 		TaskLease:          5 * time.Minute,
+		AckVisibility:      60 * time.Second,
 		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
 		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}
@@ -79,6 +83,13 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("AGENTMESH_TASK_LEASE: %w", err)
 		}
 		cfg.TaskLease = d
+	}
+	if v := os.Getenv("AGENTMESH_ACK_VISIBILITY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("AGENTMESH_ACK_VISIBILITY: %w", err)
+		}
+		cfg.AckVisibility = d
 	}
 	return cfg, nil
 }

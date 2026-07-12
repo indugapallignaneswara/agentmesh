@@ -111,6 +111,18 @@ type Store interface {
 	// message has Recipient set to member.
 	ReadInbox(ctx context.Context, workspace, member string, now time.Time) ([]model.Message, error)
 
+	// ReadInboxLeased returns the member's messages that are undelivered AND
+	// not currently in flight (in_flight_until is NULL or <= now),
+	// oldest-first, marking each in flight until now+visibility. Messages are
+	// NOT marked delivered: they reappear after the visibility deadline unless
+	// acked — at-least-once delivery. Recipient is set on returned messages.
+	ReadInboxLeased(ctx context.Context, workspace, member string, now time.Time, visibility time.Duration) ([]model.Message, error)
+
+	// AckInbox marks the given message ids delivered for member (finalising an
+	// at-least-once read). Unknown/foreign ids are ignored; returns the number
+	// of deliveries acked.
+	AckInbox(ctx context.Context, workspace, member string, ids []string, now time.Time) (int, error)
+
 	// AppendEvent appends an event and returns it with the assigned Seq.
 	AppendEvent(ctx context.Context, e model.Event) (model.Event, error)
 

@@ -69,6 +69,12 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("BanLifecycle", func(t *testing.T) { testBanLifecycle(t, newStore(t)) })
 	t.Run("ListMessagesPaging", func(t *testing.T) { testListMessagesPaging(t, newStore(t)) })
 
+	t.Run("AckLeasedReadRedelivers", func(t *testing.T) { testLeasedReadRedelivers(t, newStore(t)) })
+	t.Run("AckFinalises", func(t *testing.T) { testAckFinalises(t, newStore(t)) })
+	t.Run("AckPartial", func(t *testing.T) { testPartialAck(t, newStore(t)) })
+	t.Run("AckIgnoresForeignIds", func(t *testing.T) { testAckIgnoresForeignIds(t, newStore(t)) })
+	t.Run("AckLeasedAndPlainInterop", func(t *testing.T) { testLeasedAndPlainInterop(t, newStore(t)) })
+
 	t.Run("InviteCreateGetByHash", func(t *testing.T) { testInviteCreateGetByHash(t, newStore(t)) })
 	t.Run("InviteRedeemAtomic", func(t *testing.T) { testInviteRedeemAtomic(t, newStore(t)) })
 	t.Run("InviteListOrder", func(t *testing.T) { testInviteListOrder(t, newStore(t)) })

@@ -67,7 +67,8 @@ trade-off.
 | `workspace_join` | Join/refresh membership as a `human` or `agent` |
 | `workspace_presence` | List members active within the presence window |
 | `send_message` | Direct, point-to-point message (any-to-any) |
-| `read_inbox` | Read and consume undelivered messages |
+| `read_inbox` | Read undelivered messages — consume-on-read, or `ack_mode: true` to lease them (at-least-once) |
+| `ack_messages` | Finalise an ack-mode read; unacknowledged messages redeliver after the visibility window |
 | `broadcast` | Fan a message out to all other members |
 | `publish_event` | Append a typed event to the observation log |
 | `subscribe` | Read events after a cursor (returns the next cursor) |
@@ -126,6 +127,7 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |
 | `AGENTMESH_PRESENCE_TTL` | `60s` | How recently a member must be seen to count as present |
 | `AGENTMESH_TASK_LEASE` | `5m` | How long a task claim is held before another agent can steal it |
+| `AGENTMESH_ACK_VISIBILITY` | `60s` | Lease window for ack-mode inbox reads before an unacknowledged message redelivers |
 | `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 
 ### Authentication
