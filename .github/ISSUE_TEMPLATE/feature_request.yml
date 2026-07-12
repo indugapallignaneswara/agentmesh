@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [ROADMAP.md](https://github.com/indugapallignaneswara/agentmesh/blob/main/ROADMAP.md) first — it may already be planned, or deliberately out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can't you do today? Describe the situation, not the solution.
+      placeholder: When two agents work on separate efforts in one room, every broadcast reaches everyone and burns their context.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: Your proposed capability. Sketch the tool/CLI surface if you have one in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Workarounds you've used, and why they fall short.
