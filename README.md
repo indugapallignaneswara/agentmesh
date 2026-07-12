@@ -102,7 +102,8 @@ make up
 AGENTMESH_DATABASE_URL='postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable' \
 AGENTMESH_NATS_URL='nats://localhost:4222' \
 make run
-# MCP endpoint: http://localhost:8080/mcp   health: /healthz   dashboard: /ui
+# MCP endpoint: http://localhost:8080/mcp   dashboard: /ui
+# liveness: /healthz   readiness (store reachable): /readyz   metrics: /metrics
 # A2A agent card: /.well-known/agent-card.json
 ```
 

@@ -236,6 +236,9 @@ func (s *Postgres) EventsSince(ctx context.Context, workspace string, sinceSeq i
 	return out, rows.Err()
 }
 
+// Ping verifies the connection pool can reach Postgres.
+func (s *Postgres) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 func (s *Postgres) Close() error {
 	s.pool.Close()
 	return nil

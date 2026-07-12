@@ -20,6 +20,7 @@ import (
 	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
 	"github.com/indugapallignaneswara/agentmesh/internal/discovery"
 	"github.com/indugapallignaneswara/agentmesh/internal/mcpserver"
+	"github.com/indugapallignaneswara/agentmesh/internal/metrics"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
 )
@@ -99,12 +100,27 @@ func run() error {
 		workspace.WithLogger(logger),
 	)
 
+	reg := metrics.New()
+
 	mux := http.NewServeMux()
+	// Liveness: the process is up. Readiness: it can actually serve — the
+	// store is reachable. Load balancers should gate traffic on /readyz.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/mcp", mcpserver.Handler(svc, version))
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := st.Ping(ctx); err != nil {
+			http.Error(w, "store unavailable: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
+	})
+	mux.Handle("GET /metrics", reg.Handler())
+	mux.Handle("/mcp", mcpserver.HandlerWithMetrics(svc, version, reg))
 	mux.Handle("/ui", dashboard.Handler(svc))
 	mux.Handle("/ui/", dashboard.Handler(svc))
 	mux.Handle(discovery.WellKnownPath, discovery.Handler(version, cfg.Auth))
@@ -115,13 +131,19 @@ func run() error {
 	var handler http.Handler = mux
 	if cfg.Auth == "token" {
 		authn := &auth.TokenAuthenticator{Store: st}
-		// The agent card stays open: it is how clients discover the security
-		// scheme in the first place.
-		handler = auth.Middleware(authn, "/healthz", "/ui", discovery.WellKnownPath)(mux)
+		// Open endpoints: the agent card (how clients discover the security
+		// scheme in the first place), the health/readiness probes and the
+		// metrics scrape — infrastructure must reach these without a
+		// workspace credential. /metrics exposes no message content.
+		handler = auth.Middleware(authn,
+			"/healthz", "/readyz", "/metrics", "/ui", discovery.WellKnownPath)(mux)
 		logger.Info("authentication enabled", "mode", "token")
 	} else {
 		logger.Warn("authentication is OFF; anyone who can reach this address can join — use only on a trusted network")
 	}
+
+	// Count every HTTP response (outermost, so auth rejections are counted too).
+	handler = reg.HTTPMiddleware(handler)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

@@ -270,6 +270,10 @@ type Store interface {
 	// ListArtifacts returns a workspace's artifacts ordered by name.
 	ListArtifacts(ctx context.Context, workspace string) ([]model.Artifact, error)
 
+	// Ping reports whether the store is reachable. It backs the readiness
+	// probe: a server whose store is down is live but not ready.
+	Ping(ctx context.Context) error
+
 	// Close releases any resources held by the store.
 	Close() error
 }

@@ -205,4 +205,8 @@ func (s *Memory) EventsSince(_ context.Context, workspace string, sinceSeq int64
 	return out, nil
 }
 
+// Ping always succeeds: the in-memory store is reachable whenever the process
+// is running.
+func (s *Memory) Ping(context.Context) error { return nil }
+
 func (s *Memory) Close() error { return nil }
