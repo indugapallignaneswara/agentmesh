@@ -184,13 +184,34 @@ func (s *Postgres) ReadInbox(ctx context.Context, workspace, member string, now 
 	return out, rows.Err()
 }
 
+// eventAppendLockKey serialises event appends (see AppendEvent).
+const eventAppendLockKey int64 = 0x41474D5F45564E54 // "AGM_EVNT"
+
 func (s *Postgres) AppendEvent(ctx context.Context, e model.Event) (model.Event, error) {
+	// Events are paged by `seq > cursor`, but a bigserial is assigned at INSERT
+	// while the row only becomes visible at COMMIT. Under concurrent appends a
+	// poller could observe seq N+2, advance its cursor, and permanently skip
+	// N+1 committing later. A transaction-scoped advisory lock makes seq order
+	// equal commit order, so the cursor can never skip. The observation log is
+	// low-volume; serialising appends is the right trade for a log that must
+	// never lie.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return model.Event{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after a successful commit
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, eventAppendLockKey); err != nil {
+		return model.Event{}, err
+	}
 	const q = `
 		INSERT INTO events (workspace, source, type, payload, created_at)
 		VALUES ($1, $2, $3, $4, $5) RETURNING seq`
-	err := s.pool.QueryRow(ctx, q,
-		e.Workspace, e.Source, e.Type, jsonbArg(e.Payload), e.CreatedAt).Scan(&e.Seq)
-	return e, err
+	if err := tx.QueryRow(ctx, q,
+		e.Workspace, e.Source, e.Type, jsonbArg(e.Payload), e.CreatedAt).Scan(&e.Seq); err != nil {
+		return model.Event{}, err
+	}
+	return e, tx.Commit(ctx)
 }
 
 func (s *Postgres) EventsSince(ctx context.Context, workspace string, sinceSeq int64, limit int) ([]model.Event, error) {
