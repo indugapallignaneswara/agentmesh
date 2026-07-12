@@ -90,21 +90,25 @@ func (s *Service) RoomList(ctx context.Context, statuses []model.WorkspaceStatus
 // mode a missing room is lazily created (open) so pre-v0.2 behaviour and the
 // zero-setup demo keep working; otherwise a missing room is ErrNotFound.
 func (s *Service) requireOpenRoom(ctx context.Context, name string) error {
+	_, err := s.openRoom(ctx, name)
+	return err
+}
+
+// openRoom is requireOpenRoom returning the room itself, for callers that
+// also need its policy fields (join/broadcast gating) without a second fetch.
+func (s *Service) openRoom(ctx context.Context, name string) (model.Workspace, error) {
 	w, err := s.store.GetWorkspace(ctx, name)
 	if errors.Is(err, store.ErrNotFound) {
 		if s.implicitRoom {
-			if _, err := s.store.EnsureWorkspace(ctx, name, s.now()); err != nil {
-				return err
-			}
-			return nil // freshly created rooms are open
+			return s.store.EnsureWorkspace(ctx, name, s.now()) // freshly created rooms are open
 		}
-		return fmt.Errorf("room %q: %w", name, store.ErrNotFound)
+		return model.Workspace{}, fmt.Errorf("room %q: %w", name, store.ErrNotFound)
 	}
 	if err != nil {
-		return err
+		return model.Workspace{}, err
 	}
 	if w.Status != model.WorkspaceOpen {
-		return fmt.Errorf("%w: %q", ErrRoomClosed, name)
+		return model.Workspace{}, fmt.Errorf("%w: %q", ErrRoomClosed, name)
 	}
-	return nil
+	return w, nil
 }

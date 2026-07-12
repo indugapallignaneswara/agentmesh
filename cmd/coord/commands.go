@@ -58,10 +58,14 @@ func cmdJoin(ctx context.Context, cl *client.Client, out *output, args []string)
 	name := stringFlag(fs, "name", "AGENTMESH_MEMBER", "", "member name")
 	kind := fs.String("kind", "agent", "member kind: human or agent")
 	card := fs.String("agent-card", "", "optional JSON capability/identity card")
+	invite := fs.String("invite", "", "invite code for invite-only rooms")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	a := map[string]any{"workspace": *ws, "name": *name, "kind": *kind}
+	if *invite != "" {
+		a["invite_code"] = *invite
+	}
 	if *card != "" {
 		var v any
 		if err := json.Unmarshal([]byte(*card), &v); err != nil {

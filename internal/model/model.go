@@ -19,19 +19,48 @@ const (
 	WorkspaceClosed WorkspaceStatus = "closed"
 )
 
+// JoinPolicy controls who may join a room. Open rooms accept any join;
+// invite-only rooms require a valid invite code minted by a moderator.
+type JoinPolicy string
+
+const (
+	JoinOpen   JoinPolicy = "open"
+	JoinInvite JoinPolicy = "invite"
+)
+
+// Valid reports whether p is a recognised join policy.
+func (p JoinPolicy) Valid() bool { return p == JoinOpen || p == JoinInvite }
+
+// BroadcastPolicy controls who may broadcast in a room. "anyone" is the
+// default; "moderators" restricts fan-out to the (human) owner/moderators.
+type BroadcastPolicy string
+
+const (
+	BroadcastAnyone     BroadcastPolicy = "anyone"
+	BroadcastModerators BroadcastPolicy = "moderators"
+)
+
+// Valid reports whether p is a recognised broadcast policy.
+func (p BroadcastPolicy) Valid() bool {
+	return p == BroadcastAnyone || p == BroadcastModerators
+}
+
 // Workspace is a room: the first-class, human-owned container that members
 // join and coordinate in. Before v0.2 workspaces existed only implicitly as a
 // side effect of joining; now a room can be explicitly created, listed and
 // closed. CreatedBy is the human owner; ClosedAt/ClosedBy record the last
-// close (nil while open).
+// close (nil while open). JoinPolicy and WhoMayBroadcast are the M1.4 room
+// policies (defaults: open / anyone).
 type Workspace struct {
-	Name      string          `json:"name"`
-	Status    WorkspaceStatus `json:"status"`
-	CreatedBy string          `json:"created_by"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-	ClosedBy  string          `json:"closed_by,omitempty"`
-	ClosedAt  *time.Time      `json:"closed_at,omitempty"`
+	Name            string          `json:"name"`
+	Status          WorkspaceStatus `json:"status"`
+	CreatedBy       string          `json:"created_by"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	ClosedBy        string          `json:"closed_by,omitempty"`
+	ClosedAt        *time.Time      `json:"closed_at,omitempty"`
+	JoinPolicy      JoinPolicy      `json:"join_policy,omitempty"`
+	WhoMayBroadcast BroadcastPolicy `json:"who_may_broadcast,omitempty"`
 }
 
 // Kind distinguishes the two principal types that participate in a workspace.
@@ -85,6 +114,24 @@ type Ban struct {
 	BannedBy  string    `json:"banned_by"`
 	Reason    string    `json:"reason,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Invite is a joinable credential for a room: a code (stored only as its
+// SHA-256 hash) that admits up to MaxUses principals of the given Kind,
+// optionally granting the moderator role on join. ExpiresAt bounds its
+// lifetime; RevokedAt is a soft kill-switch so issuance stays auditable.
+type Invite struct {
+	ID        string     `json:"id"`
+	Workspace string     `json:"workspace"`
+	Kind      Kind       `json:"kind"`
+	Role      Role       `json:"role"`
+	MaxUses   int        `json:"max_uses"`
+	Uses      int        `json:"uses"`
+	CreatedBy string     `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	CodeHash  string     `json:"-"`
 }
 
 // MessageKind separates point-to-point messages from fan-out broadcasts.

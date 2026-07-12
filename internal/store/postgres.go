@@ -225,7 +225,7 @@ func (s *Postgres) Close() error {
 // empty store between cases.
 func (s *Postgres) TruncateAll(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx,
-		`TRUNCATE workspaces, auth_tokens, artifacts, memories, task_deps, tasks, deliveries, messages, members, events RESTART IDENTITY`)
+		`TRUNCATE invites, bans, workspaces, auth_tokens, artifacts, memories, task_deps, tasks, deliveries, messages, members, events RESTART IDENTITY`)
 	return err
 }
 

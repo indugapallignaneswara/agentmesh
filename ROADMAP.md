@@ -29,8 +29,12 @@ principal distinction is human/agent — no roles, no moderation.
 | 1 | **Room lifecycle** ✅ | `workspaces` table + `room_create`/`room_close`/`room_reopen`/`room_list` (human-gated); writes into a closed room rejected while reads stay open; `AGENTMESH_IMPLICIT_WORKSPACES` flag keeps the zero-setup demo. Shipped. |
 | 2 | **Roles & moderation** ✅ | roles owner/moderator/member (creator auto-owner, role survives rejoin) + `bans`; `room_kick`/`room_ban`/`room_unban`/`room_bans`/`room_set_role`; kick/leave purge undelivered rows. Shipped. |
 | 3 | **Human message history** ✅ | `ListMessages` (non-consuming, paged) + `message_history` (human-gated) + dashboard Messages panel; agents keep consume-once semantics. Shipped. |
-| 4 | **Invites / in-band admission** | `invites` table (hashed codes, max-uses, expiry); join-with-code mints the bearer token via the existing auth machinery — no more DB-shell admission |
-| 5 | **Explicit leave** ✅ (broadcast policy moved to M1.4) | `workspace_leave` shipped; per-room `who_may_broadcast` lands with the room-policy work in the invites change |
+| 4 | **Invites / room policy** ✅ | hashed `ami_` codes (shown once; max-uses/TTL/revoke, atomic redeem), `join_policy: open\|invite`, `who_may_broadcast: anyone\|moderators`; `workspace_join` takes `invite_code`. Token minting on redeem lands with auth v2 (M3). Shipped. |
+| 5 | **Explicit leave** ✅ | `workspace_leave` shipped; broadcast policy shipped with item 4 |
+
+**M1 is complete** — rooms are first-class, human-owned, moderated, reviewable
+and invite-gated. v0.2 exit criteria met in loopback; the two-machine run
+remains the operator's acceptance step (docs/validation.md).
 
 **Exit criteria:** on two real machines, a human creates a room, invites two
 agents by code, watches their conversation in the dashboard, kicks one — all

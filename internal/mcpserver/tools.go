@@ -85,6 +85,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	registerArtifactTools(s, svc)
 	registerRoomTools(s, svc)
 	registerModerationTools(s, svc)
+	registerInviteTools(s, svc)
 }
 
 // --- tool argument and result types ---
@@ -94,10 +95,11 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 // generated output schema is likewise permissive. See dto.go for why.
 
 type joinArgs struct {
-	Workspace string `json:"workspace" jsonschema:"the workspace identifier (letters, digits, '-' and '_')"`
-	Name      string `json:"name" jsonschema:"the member's unique name within the workspace"`
-	Kind      string `json:"kind" jsonschema:"the member kind: 'human' or 'agent'"`
-	AgentCard any    `json:"agent_card,omitempty" jsonschema:"optional JSON capability/identity card for the member"`
+	Workspace  string `json:"workspace" jsonschema:"the workspace identifier (letters, digits, '-' and '_')"`
+	Name       string `json:"name" jsonschema:"the member's unique name within the workspace"`
+	Kind       string `json:"kind" jsonschema:"the member kind: 'human' or 'agent'"`
+	AgentCard  any    `json:"agent_card,omitempty" jsonschema:"optional JSON capability/identity card for the member"`
+	InviteCode string `json:"invite_code,omitempty" jsonschema:"invite code for invite-only rooms"`
 }
 
 type presenceArgs struct {
@@ -169,9 +171,14 @@ func joinHandler(svc *workspace.Service) func(context.Context, *mcp.CallToolRequ
 		if err != nil {
 			return fail[memberDTO](fmt.Errorf("%w: agent_card: %v", workspace.ErrInvalidInput, err))
 		}
-		m, err := svc.Join(ctx, a.Workspace, a.Name, model.Kind(a.Kind), card)
+		var m model.Member
+		if a.InviteCode != "" {
+			m, err = svc.JoinWithInvite(ctx, a.Workspace, a.Name, model.Kind(a.Kind), card, a.InviteCode)
+		} else {
+			m, err = svc.Join(ctx, a.Workspace, a.Name, model.Kind(a.Kind), card)
+		}
 		if err != nil {
-			return fail[memberDTO](err)
+			return failInv[memberDTO](err)
 		}
 		return ok(toMemberDTO(m))
 	}

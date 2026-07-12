@@ -47,6 +47,10 @@ const (
 	EventMemberUnbanned = "member_unbanned"
 	EventMemberLeft     = "member_left"
 	EventRoleChanged    = "role_changed"
+
+	EventInviteCreated     = "invite_created"
+	EventInviteRevoked     = "invite_revoked"
+	EventRoomPolicyChanged = "room_policy_changed"
 )
 
 // nameRe constrains workspace and member identifiers. They double as NATS
@@ -129,7 +133,15 @@ func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 }
 
 // Join registers (or refreshes) a member and returns the stored record.
+// Invite-only rooms reject a bare Join — use JoinWithInvite with a code.
 func (s *Service) Join(ctx context.Context, workspace, name string, kind model.Kind, agentCard json.RawMessage) (model.Member, error) {
+	return s.joinInternal(ctx, workspace, name, kind, agentCard, false)
+}
+
+// joinInternal is the shared join path. viaInvite is true when the caller
+// arrived through JoinWithInvite with an already-redeemed invite, which
+// bypasses the room's invite-only join policy (but never the ban list).
+func (s *Service) joinInternal(ctx context.Context, workspace, name string, kind model.Kind, agentCard json.RawMessage, viaInvite bool) (model.Member, error) {
 	if err := validName("workspace", workspace); err != nil {
 		return model.Member{}, err
 	}
@@ -151,8 +163,13 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 		return model.Member{}, fmt.Errorf("%w: agent_card must be at most %d bytes", ErrInvalidInput, maxAgentCardSize)
 	}
 	// The room must exist and be open to join (implicit mode lazily creates it).
-	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+	room, err := s.openRoom(ctx, workspace)
+	if err != nil {
 		return model.Member{}, err
+	}
+	// Invite-only rooms admit only invite-carrying joins.
+	if room.JoinPolicy == model.JoinInvite && !viaInvite {
+		return model.Member{}, fmt.Errorf("%w: room %q is invite-only; join with an invite code", ErrInvalidInput, workspace)
 	}
 	if len(agentCard) > 0 && !json.Valid(agentCard) {
 		return model.Member{}, fmt.Errorf("%w: agent_card is not valid JSON", ErrInvalidInput)
@@ -175,7 +192,7 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 	}
 	// The room's creator becomes its owner on join; everyone else is a member.
 	// (UpsertMember preserves an already-assigned role on re-join.)
-	if room, rerr := s.store.GetWorkspace(ctx, workspace); rerr == nil && room.CreatedBy == name {
+	if room.CreatedBy == name {
 		m.Role = model.RoleOwner
 	} else {
 		m.Role = model.RoleMember
@@ -263,11 +280,21 @@ func (s *Service) Broadcast(ctx context.Context, workspace, from, body string) (
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
 		return model.Message{}, 0, err
 	}
-	if err := s.requireOpenRoom(ctx, workspace); err != nil {
+	room, err := s.openRoom(ctx, workspace)
+	if err != nil {
 		return model.Message{}, 0, err
 	}
 	if err := s.requireMember(ctx, workspace, from); err != nil {
 		return model.Message{}, 0, err
+	}
+	// Policy 'moderators' restricts fan-out to the human owner/moderators.
+	// requireModerator demands a HUMAN, so moderator-role agents still cannot
+	// broadcast under this policy — that is intentional: the policy exists so
+	// humans can silence noisy agent loops.
+	if room.WhoMayBroadcast == model.BroadcastModerators {
+		if _, err := s.requireModerator(ctx, workspace, from); err != nil {
+			return model.Message{}, 0, fmt.Errorf("broadcast restricted to moderators in room %q: %w", workspace, err)
+		}
 	}
 	members, err := s.store.ListMembers(ctx, workspace)
 	if err != nil {

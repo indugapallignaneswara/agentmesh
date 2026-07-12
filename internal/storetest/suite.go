@@ -69,6 +69,12 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("BanLifecycle", func(t *testing.T) { testBanLifecycle(t, newStore(t)) })
 	t.Run("ListMessagesPaging", func(t *testing.T) { testListMessagesPaging(t, newStore(t)) })
 
+	t.Run("InviteCreateGetByHash", func(t *testing.T) { testInviteCreateGetByHash(t, newStore(t)) })
+	t.Run("InviteRedeemAtomic", func(t *testing.T) { testInviteRedeemAtomic(t, newStore(t)) })
+	t.Run("InviteListOrder", func(t *testing.T) { testInviteListOrder(t, newStore(t)) })
+	t.Run("InviteRevoke", func(t *testing.T) { testInviteRevoke(t, newStore(t)) })
+	t.Run("WorkspacePolicy", func(t *testing.T) { testWorkspacePolicy(t, newStore(t)) })
+
 	t.Run("TokenCreateGetByHash", func(t *testing.T) { testTokenCreateGetByHash(t, newStore(t)) })
 	t.Run("TokenRevocation", func(t *testing.T) { testTokenRevocation(t, newStore(t)) })
 	t.Run("TokenExpiry", func(t *testing.T) { testTokenExpiry(t, newStore(t)) })

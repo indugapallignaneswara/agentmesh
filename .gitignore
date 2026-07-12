@@ -20,3 +20,6 @@
 
 # Harness / local agent state
 .claude/
+
+# Build journals (session-crash insurance, not for commit)
+M14_JOURNAL.md

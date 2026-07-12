@@ -13,7 +13,7 @@ import (
 // cmdRoom dispatches the `room` subcommand group.
 func cmdRoom(ctx context.Context, cl *client.Client, out *output, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("room requires a subcommand: create|close|reopen|list")
+		return fmt.Errorf("room requires a subcommand: create|close|reopen|list|policy")
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -25,6 +25,8 @@ func cmdRoom(ctx context.Context, cl *client.Client, out *output, args []string)
 		return cmdRoomMod(ctx, cl, out, rest, "room_reopen")
 	case "list":
 		return cmdRoomList(ctx, cl, out, rest)
+	case "policy":
+		return cmdRoomPolicy(ctx, cl, out, rest)
 	default:
 		return fmt.Errorf("unknown room subcommand %q", sub)
 	}

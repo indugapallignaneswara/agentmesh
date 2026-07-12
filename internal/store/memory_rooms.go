@@ -14,8 +14,21 @@ func (s *Memory) CreateWorkspace(_ context.Context, w model.Workspace) (model.Wo
 	if _, ok := s.rooms[w.Name]; ok {
 		return model.Workspace{}, ErrRoomExists
 	}
+	w = defaultPolicies(w)
 	s.rooms[w.Name] = w
 	return w, nil
+}
+
+// defaultPolicies fills the M1.4 policy fields when unset, mirroring the
+// Postgres column defaults so both stores round-trip identically.
+func defaultPolicies(w model.Workspace) model.Workspace {
+	if w.JoinPolicy == "" {
+		w.JoinPolicy = model.JoinOpen
+	}
+	if w.WhoMayBroadcast == "" {
+		w.WhoMayBroadcast = model.BroadcastAnyone
+	}
+	return w
 }
 
 func (s *Memory) GetWorkspace(_ context.Context, name string) (model.Workspace, error) {
@@ -34,7 +47,7 @@ func (s *Memory) EnsureWorkspace(_ context.Context, name string, now time.Time) 
 	if w, ok := s.rooms[name]; ok {
 		return w, nil
 	}
-	w := model.Workspace{Name: name, Status: model.WorkspaceOpen, CreatedAt: now, UpdatedAt: now}
+	w := defaultPolicies(model.Workspace{Name: name, Status: model.WorkspaceOpen, CreatedAt: now, UpdatedAt: now})
 	s.rooms[name] = w
 	return w, nil
 }

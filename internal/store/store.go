@@ -45,6 +45,10 @@ var (
 
 	// ErrBanned is returned by GetBan (via the service) when a name is banned.
 	ErrBanned = errors.New("member is banned")
+
+	// ErrInviteSpent is returned by RedeemInvite when the invite exists but is
+	// not redeemable: revoked, expired, or all uses consumed.
+	ErrInviteSpent = errors.New("invite not redeemable")
 )
 
 // Store is the authoritative system of record for the workspace. All timestamps
@@ -194,6 +198,34 @@ type Store interface {
 	// SetWorkspaceStatus transitions a room's status (e.g. open->closed).
 	// actor and now are recorded on a close. Returns ErrNotFound if absent.
 	SetWorkspaceStatus(ctx context.Context, name string, status model.WorkspaceStatus, actor string, now time.Time) (model.Workspace, error)
+
+	// SetWorkspacePolicy updates a room's join and broadcast policies, bumping
+	// UpdatedAt. Returns ErrNotFound if the room does not exist.
+	SetWorkspacePolicy(ctx context.Context, name string, jp model.JoinPolicy, bp model.BroadcastPolicy, now time.Time) (model.Workspace, error)
+
+	// CreateInvite persists an invite record (hash only; the caller keeps the
+	// plaintext code). ID and CodeHash must be unique.
+	CreateInvite(ctx context.Context, inv model.Invite) (model.Invite, error)
+
+	// GetInviteByHash returns the invite with this code hash in ANY state
+	// (spent/revoked/expired included, so callers can validate before
+	// redeeming), or ErrNotFound if absent.
+	GetInviteByHash(ctx context.Context, hash string) (model.Invite, error)
+
+	// RedeemInvite atomically consumes one use of the invite with this code
+	// hash: only if it is not revoked, not expired as of now, and uses is
+	// still below max_uses does uses increment. It returns the updated invite.
+	// An existing but non-redeemable invite returns ErrInviteSpent; an absent
+	// hash returns ErrNotFound.
+	RedeemInvite(ctx context.Context, hash string, now time.Time) (model.Invite, error)
+
+	// ListInvites returns a workspace's invites (all states, for audit),
+	// newest first.
+	ListInvites(ctx context.Context, workspace string) ([]model.Invite, error)
+
+	// RevokeInvite soft-revokes an invite by ID. ErrNotFound if absent or
+	// already revoked.
+	RevokeInvite(ctx context.Context, id string, now time.Time) error
 
 	// CreateAuthToken persists a token record (hash only; the caller keeps the
 	// secret). ID and TokenHash must be unique.

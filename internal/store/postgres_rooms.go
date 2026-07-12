@@ -11,10 +11,12 @@ import (
 )
 
 const workspaceSelect = `
-	SELECT name, status, created_by, created_at, updated_at, closed_by, closed_at
+	SELECT name, status, created_by, created_at, updated_at, closed_by, closed_at, join_policy, who_may_broadcast
 	FROM workspaces`
 
 func (s *Postgres) CreateWorkspace(ctx context.Context, w model.Workspace) (model.Workspace, error) {
+	// The policy columns take their DB defaults (open/anyone); the returned
+	// struct is normalised the same way so both stores round-trip identically.
 	tag, err := s.pool.Exec(ctx, `
 		INSERT INTO workspaces (name, status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -26,7 +28,7 @@ func (s *Postgres) CreateWorkspace(ctx context.Context, w model.Workspace) (mode
 	if tag.RowsAffected() == 0 {
 		return model.Workspace{}, ErrRoomExists
 	}
-	return w, nil
+	return defaultPolicies(w), nil
 }
 
 func (s *Postgres) GetWorkspace(ctx context.Context, name string) (model.Workspace, error) {
@@ -96,11 +98,13 @@ func (s *Postgres) SetWorkspaceStatus(ctx context.Context, name string, status m
 
 func scanWorkspace(row pgx.Row) (model.Workspace, error) {
 	var w model.Workspace
-	var status string
+	var status, joinPolicy, broadcast string
 	if err := row.Scan(&w.Name, &status, &w.CreatedBy, &w.CreatedAt, &w.UpdatedAt,
-		&w.ClosedBy, &w.ClosedAt); err != nil {
+		&w.ClosedBy, &w.ClosedAt, &joinPolicy, &broadcast); err != nil {
 		return model.Workspace{}, err
 	}
 	w.Status = model.WorkspaceStatus(status)
+	w.JoinPolicy = model.JoinPolicy(joinPolicy)
+	w.WhoMayBroadcast = model.BroadcastPolicy(broadcast)
 	return w, nil
 }

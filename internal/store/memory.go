@@ -25,6 +25,7 @@ type Memory struct {
 	tokens   []model.AuthToken
 	rooms    map[string]model.Workspace // key: room name
 	bans     map[string]model.Ban       // key: workspace + "\x00" + name
+	invites  []model.Invite
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises

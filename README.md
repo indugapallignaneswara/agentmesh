@@ -84,6 +84,8 @@ trade-off.
 | `room_kick` / `room_ban` / `room_unban` / `room_bans` / `room_set_role` | Moderation — owner/moderator humans eject or ban members and grant roles; kicks purge undelivered inboxes; bans block rejoin |
 | `workspace_leave` | Self-service departure (stops accruing deliveries) |
 | `message_history` | Human-only, non-consuming review of the room's conversation (also a dashboard panel) |
+| `room_invite_create` / `room_invite_revoke` / `room_invites` | Hashed invite codes (shown once) with max-uses/TTL; `workspace_join` takes `invite_code` |
+| `room_set_policy` | Per-room `join_policy: open\|invite` and `who_may_broadcast: anyone\|moderators` |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so

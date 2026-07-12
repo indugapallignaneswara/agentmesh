@@ -110,6 +110,8 @@ dispatch:
 		return cmdArtifact(ctx, cl, out, rest)
 	case "room":
 		return cmdRoom(ctx, cl, out, rest)
+	case "invite":
+		return cmdInvite(ctx, cl, out, rest)
 	case "mod":
 		return cmdModerate(ctx, cl, out, rest)
 	case "leave":
@@ -151,6 +153,8 @@ Commands:
   memory     Shared memory: memory write|search|queue|approve|reject
   artifact   Co-edited artifacts: artifact get|put|list
   room       Room lifecycle: room create|close|reopen|list
+             Room policy: room policy --join open|invite --broadcast anyone|moderators
+  invite     Room invites (human moderators): invite create|list|revoke
   mod        Moderation (human moderators): mod kick|ban|unban|bans|role
   leave      Leave the room (self-service departure)
   history    Review the room's message log (human-only, non-consuming)
