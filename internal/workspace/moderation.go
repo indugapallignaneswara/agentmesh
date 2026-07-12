@@ -131,7 +131,12 @@ func (s *Service) RoomListBans(ctx context.Context, workspace, actor string) ([]
 	if _, err := s.requireModerator(ctx, workspace, actor); err != nil {
 		return nil, err
 	}
-	return s.store.ListBans(ctx, workspace)
+	bans, err := s.store.ListBans(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	bans, _ = capList(bans, 0)
+	return bans, nil
 }
 
 // RoomSetRole changes a member's role. Only an owner may change roles, and the

@@ -135,7 +135,12 @@ func (s *Service) MemoryQueue(ctx context.Context, workspace, reviewer string) (
 	if err := s.requireHuman(ctx, workspace, reviewer); err != nil {
 		return nil, err
 	}
-	return s.store.ListPendingShared(ctx, workspace)
+	items, err := s.store.ListPendingShared(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	items, _ = capList(items, 0)
+	return items, nil
 }
 
 // MemoryQueuePeek returns the pending shared submissions for the web

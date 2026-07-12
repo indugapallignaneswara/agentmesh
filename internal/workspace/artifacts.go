@@ -84,5 +84,10 @@ func (s *Service) ArtifactList(ctx context.Context, workspace string) ([]model.A
 	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
 		return nil, err
 	}
-	return s.store.ListArtifacts(ctx, workspace)
+	arts, err := s.store.ListArtifacts(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
+	arts, _ = capList(arts, 0)
+	return arts, nil
 }

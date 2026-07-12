@@ -56,11 +56,13 @@ type getTaskArgs struct {
 type listTasksArgs struct {
 	Workspace string   `json:"workspace" jsonschema:"the workspace identifier"`
 	Statuses  []string `json:"statuses,omitempty" jsonschema:"optional status filter: pending, claimed, completed, failed"`
+	Limit     int      `json:"limit,omitempty" jsonschema:"maximum tasks to return (default 100, max 500)"`
 }
 
 type listTasksResult struct {
-	Tasks []model.Task `json:"tasks"`
-	Count int          `json:"count"`
+	Tasks     []model.Task `json:"tasks"`
+	Count     int          `json:"count"`
+	Truncated bool         `json:"truncated"`
 }
 
 // --- handlers ---
@@ -128,11 +130,11 @@ func listTasksHandler(svc *workspace.Service) func(context.Context, *mcp.CallToo
 		for i, s := range a.Statuses {
 			statuses[i] = model.TaskStatus(s)
 		}
-		tasks, err := svc.ListTasks(ctx, a.Workspace, statuses)
+		tasks, truncated, err := svc.ListTasksPaged(ctx, a.Workspace, statuses, a.Limit)
 		if err != nil {
 			return failTask[listTasksResult](err)
 		}
-		return ok(listTasksResult{Tasks: tasks, Count: len(tasks)})
+		return ok(listTasksResult{Tasks: tasks, Count: len(tasks), Truncated: truncated})
 	}
 }
 

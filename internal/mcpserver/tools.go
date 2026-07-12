@@ -277,7 +277,8 @@ func ok[T any](v T) (*mcp.CallToolResult, T, error) {
 func fail[T any](err error) (*mcp.CallToolResult, T, error) {
 	var zero T
 	if errors.Is(err, workspace.ErrInvalidInput) || errors.Is(err, store.ErrNotFound) ||
-		errors.Is(err, auth.ErrForbidden) || errors.Is(err, workspace.ErrRoomClosed) {
+		errors.Is(err, auth.ErrForbidden) || errors.Is(err, workspace.ErrRoomClosed) ||
+		errors.Is(err, workspace.ErrRateLimited) {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

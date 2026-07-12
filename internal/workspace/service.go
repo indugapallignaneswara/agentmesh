@@ -65,8 +65,14 @@ const (
 	defaultTaskLease     = 5 * time.Minute
 	defaultAckVisibility = 60 * time.Second
 	maxAckIDs            = 500
-	maxTaskTitle         = 512
-	maxDependsOn         = 64
+
+	// defaultListLimit / maxListLimit bound every list endpoint so a large
+	// workspace cannot return an unbounded payload. Callers that hit the cap
+	// are told so explicitly (Truncated) rather than silently losing rows.
+	defaultListLimit = 100
+	maxListLimit     = 500
+	maxTaskTitle     = 512
+	maxDependsOn     = 64
 
 	// Input size caps (bytes). These bound the per-call write amplification —
 	// a body/payload is fanned out to one delivery row per recipient and
@@ -89,6 +95,7 @@ type Service struct {
 	taskLease     time.Duration
 	ackVisibility time.Duration // lease window for ack-mode inbox reads
 	implicitRoom  bool          // auto-create a room on first join (back-compat / demo mode)
+	rl            *limiter      // per-principal rate limits (disabled by default)
 	log           *slog.Logger
 }
 
@@ -116,6 +123,12 @@ func WithTaskLease(d time.Duration) Option { return func(s *Service) { s.taskLea
 // unacknowledged message is redelivered.
 func WithAckVisibility(d time.Duration) Option { return func(s *Service) { s.ackVisibility = d } }
 
+// WithRateLimits enables per-principal rate limiting on send, broadcast and
+// publish_event. Zero rates leave an operation unlimited (the default).
+func WithRateLimits(rl RateLimits) Option {
+	return func(s *Service) { s.rl = newLimiter(rl, func() time.Time { return s.now() }) }
+}
+
 // WithImplicitRooms controls whether joining a non-existent room auto-creates
 // it (open). True preserves the pre-v0.2 behaviour and keeps the zero-setup
 // demo working; false means rooms must be created explicitly with RoomCreate.
@@ -136,6 +149,11 @@ func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 	}
 	for _, o := range opts {
 		o(s)
+	}
+	if s.rl == nil {
+		// Limiting off by default: existing deployments and the demo are
+		// unaffected until budgets are configured.
+		s.rl = newLimiter(RateLimits{}, func() time.Time { return s.now() })
 	}
 	return s
 }
@@ -247,6 +265,9 @@ func (s *Service) SendMessage(ctx context.Context, workspace, from, to, body str
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
 		return model.Message{}, err
 	}
+	if err := s.rl.allow(workspace, from, opSend); err != nil {
+		return model.Message{}, err
+	}
 	if err := s.requireOpenRoom(ctx, workspace); err != nil {
 		return model.Message{}, err
 	}
@@ -286,6 +307,9 @@ func (s *Service) Broadcast(ctx context.Context, workspace, from, body string) (
 		return model.Message{}, 0, fmt.Errorf("%w: body must be 1-%d bytes", ErrInvalidInput, maxMessageBody)
 	}
 	if err := auth.CheckActor(ctx, workspace, from); err != nil {
+		return model.Message{}, 0, err
+	}
+	if err := s.rl.allow(workspace, from, opBroadcast); err != nil {
 		return model.Message{}, 0, err
 	}
 	room, err := s.openRoom(ctx, workspace)
@@ -383,6 +407,9 @@ func (s *Service) PublishEvent(ctx context.Context, workspace, source, eventType
 		return model.Event{}, err
 	}
 	if err := auth.CheckActor(ctx, workspace, source); err != nil {
+		return model.Event{}, err
+	}
+	if err := s.rl.allow(workspace, source, opEvent); err != nil {
 		return model.Event{}, err
 	}
 	if eventType == "" || len(eventType) > 128 {

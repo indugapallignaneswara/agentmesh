@@ -35,6 +35,10 @@ type Config struct {
 	// AckVisibility is how long an ack-mode inbox lease lasts before an
 	// unacknowledged message is redelivered.
 	AckVisibility time.Duration
+	// RateLimit enables per-principal rate limiting on send/broadcast/
+	// publish_event with production defaults. Off by default so existing
+	// deployments and the demo are unaffected.
+	RateLimit bool
 	// ImplicitWorkspaces controls whether joining a non-existent room auto-
 	// creates it. True (default) preserves the zero-setup demo; false requires
 	// rooms to be created explicitly with room_create.
@@ -54,6 +58,7 @@ func Load() (Config, error) {
 		PresenceTTL:        60 * time.Second,
 		TaskLease:          5 * time.Minute,
 		AckVisibility:      60 * time.Second,
+		RateLimit:          envBool("AGENTMESH_RATE_LIMIT", false),
 		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
 		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}

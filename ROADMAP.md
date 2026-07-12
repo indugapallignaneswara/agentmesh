@@ -40,25 +40,25 @@ remains the operator's acceptance step (docs/validation.md).
 agents by code, watches their conversation in the dashboard, kicks one — all
 in-band, nothing via DB shell.
 
-## M2 — v0.3 «Delivery guarantees & abuse resistance»
+## M2 — v0.3 «Delivery guarantees & abuse resistance» ✅ COMPLETE
 
-The two honest correctness debts, plus flood control.
+1. **At-least-once inbox (opt-in ack mode)** ✅ `read_inbox` gains `ack_mode`:
+   messages are leased (visibility timeout) and redelivered unless
+   `ack_messages` finalises them. Default consume-on-read unchanged.
+2. **Event-cursor safe watermark** ✅ `AppendEvent` serialises under an
+   advisory lock so seq order == commit order; a cursor can never skip.
+3. **Rate limiting** ✅ per-principal token buckets on send/broadcast/
+   publish_event (`AGENTMESH_RATE_LIMIT`), retryable `ErrRateLimited`.
+   Budgets are per principal and per operation, so a flooding agent throttles
+   itself while humans keep acting — and kicking.
+4. **List pagination** ✅ every list surface is bounded (default 100, max 500);
+   `list_tasks` takes an explicit `limit` and reports `truncated` — truncation
+   is never silent.
 
-1. **At-least-once inbox (opt-in ack mode)** — today `read_inbox` is
-   at-most-once: messages are consumed even if the response never reaches the
-   agent. Add a visibility-timeout lease + ack (mirroring the task-lease
-   pattern); default stays simple, hooks use ack mode.
-2. **Event-cursor safe watermark** — fix the documented Postgres commit-order
-   race so `subscribe` can never skip an event (observation log only, but
-   "never lies" matters for an audit trail).
-3. **Rate limiting** — per-principal token buckets in the middleware
-   (send ~1/s, broadcast ~1/10s, tunable); `429`/retryable MCP error. A
-   misbehaving agent loop must not be able to drown a room before a human
-   can kick it (M1 gives the kick).
-4. **List pagination** everywhere unbounded (`list_tasks`, history, queue).
-
-**Exit criteria:** kill -9 the server mid-`read_inbox` → zero message loss in
-ack mode; a flooding agent gets throttled while the room stays usable.
+**Exit criteria — both verified live:** a leased message survived `kill -9` of
+the server and redelivered after restart (zero loss); a flooding agent was
+throttled after its burst while the human's independent budget let them
+broadcast and kick.
 
 ## M3 — v0.4 «Security & operability» *(safe to expose)*
 

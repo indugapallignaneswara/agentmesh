@@ -166,24 +166,37 @@ func (s *Service) GetTask(ctx context.Context, workspace, id string) (model.Task
 	return s.store.GetTask(ctx, workspace, id)
 }
 
-// ListTasks returns a workspace's tasks, optionally filtered to the given
-// statuses. Reported status is effective (a claimed task past its lease shows as
-// pending).
+// ListTasks returns a workspace's tasks (capped at the default list limit),
+// optionally filtered to the given statuses. Reported status is effective (a
+// claimed task past its lease shows as pending).
 func (s *Service) ListTasks(ctx context.Context, workspace string, statuses []model.TaskStatus) ([]model.Task, error) {
+	tasks, _, err := s.ListTasksPaged(ctx, workspace, statuses, 0)
+	return tasks, err
+}
+
+// ListTasksPaged is ListTasks with an explicit limit, also reporting whether
+// the result was truncated — so a caller knows to narrow its filter rather
+// than silently miss tasks.
+func (s *Service) ListTasksPaged(ctx context.Context, workspace string, statuses []model.TaskStatus, limit int) ([]model.Task, bool, error) {
 	if err := validName("workspace", workspace); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, st := range statuses {
 		switch st {
 		case model.TaskPending, model.TaskClaimed, model.TaskCompleted, model.TaskFailed:
 		default:
-			return nil, fmt.Errorf("%w: unknown status %q", ErrInvalidInput, st)
+			return nil, false, fmt.Errorf("%w: unknown status %q", ErrInvalidInput, st)
 		}
 	}
 	if err := auth.CheckWorkspace(ctx, workspace); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return s.store.ListTasks(ctx, workspace, statuses, s.now())
+	tasks, err := s.store.ListTasks(ctx, workspace, statuses, s.now())
+	if err != nil {
+		return nil, false, err
+	}
+	tasks, truncated := capList(tasks, limit)
+	return tasks, truncated, nil
 }
 
 // mapTaskErr converts a store dependency error into an ErrInvalidInput so the

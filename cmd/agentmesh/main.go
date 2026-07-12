@@ -95,6 +95,7 @@ func run() error {
 		workspace.WithTaskLease(cfg.TaskLease),
 		workspace.WithAckVisibility(cfg.AckVisibility),
 		workspace.WithImplicitRooms(cfg.ImplicitWorkspaces),
+		rateLimitOption(cfg.RateLimit),
 		workspace.WithLogger(logger),
 	)
 
@@ -145,6 +146,15 @@ func run() error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// rateLimitOption enables production rate-limit budgets, or a no-op when
+// limiting is off.
+func rateLimitOption(on bool) workspace.Option {
+	if !on {
+		return func(*workspace.Service) {}
+	}
+	return workspace.WithRateLimits(workspace.DefaultRateLimits())
 }
 
 func parseLevel(s string) slog.Level {
