@@ -23,3 +23,6 @@
 
 # Build journals (session-crash insurance, not for commit)
 M14_JOURNAL.md
+
+# goreleaser output
+/dist/

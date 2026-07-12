@@ -1,0 +1,122 @@
+# goreleaser builds the release artifacts on a tag: static binaries for the
+# three desktop/server platforms plus a multi-arch container image on GHCR.
+#   https://goreleaser.com
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agentmesh
+    main: ./cmd/agentmesh
+    binary: agentmesh
+    # CGO off => genuinely static binaries that run on distroless/scratch and
+    # on any glibc/musl host without surprises.
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+  - id: coord
+    main: ./cmd/coord
+    binary: coord
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  # One archive per platform containing BOTH binaries: the server is useless to
+  # evaluate without the CLI, and a newcomer should not have to find it.
+  - id: default
+    ids: [agentmesh, coord]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - SECURITY.md
+      - docs/operations.md
+
+checksum:
+  name_template: checksums.txt
+
+dockers:
+  - image_templates:
+      - "ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}-amd64"
+      - "ghcr.io/indugapallignaneswara/agentmesh:latest-amd64"
+    use: buildx
+    goarch: amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --build-arg=VERSION={{ .Version }}
+      - --label=org.opencontainers.image.source=https://github.com/indugapallignaneswara/agentmesh
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.licenses=MIT
+
+  - image_templates:
+      - "ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}-arm64"
+      - "ghcr.io/indugapallignaneswara/agentmesh:latest-arm64"
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --build-arg=VERSION={{ .Version }}
+      - --label=org.opencontainers.image.source=https://github.com/indugapallignaneswara/agentmesh
+      - --label=org.opencontainers.image.version={{ .Version }}
+      - --label=org.opencontainers.image.licenses=MIT
+
+docker_manifests:
+  - name_template: "ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}-amd64"
+      - "ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/indugapallignaneswara/agentmesh:latest"
+    image_templates:
+      - "ghcr.io/indugapallignaneswara/agentmesh:latest-amd64"
+      - "ghcr.io/indugapallignaneswara/agentmesh:latest-arm64"
+
+changelog:
+  # The handwritten CHANGELOG.md is the story; this is the raw commit list.
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?(feat|M\d)[:\(].*$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix[:\(].*$'
+      order: 1
+    - title: Other
+      order: 99
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  draft: false
+  prerelease: auto # anything with -rc/-beta is marked pre-release
+  footer: |
+    ## Install
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/indugapallignaneswara/agentmesh/main/install.sh | sh
+    ```
+
+    Or pull the image:
+
+    ```bash
+    docker pull ghcr.io/indugapallignaneswara/agentmesh:{{ .Version }}
+    ```
+
+    Before exposing a node, read the production checklist in
+    [docs/operations.md](https://github.com/indugapallignaneswara/agentmesh/blob/main/docs/operations.md).
