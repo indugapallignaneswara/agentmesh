@@ -39,6 +39,11 @@ type Config struct {
 	// publish_event with production defaults. Off by default so existing
 	// deployments and the demo are unaffected.
 	RateLimit bool
+	// TLSCert and TLSKey enable native HTTPS when both are set. Serving TLS
+	// directly is the simplest safe path; terminating at a reverse proxy is
+	// equally supported (leave these empty).
+	TLSCert string
+	TLSKey  string
 	// ImplicitWorkspaces controls whether joining a non-existent room auto-
 	// creates it. True (default) preserves the zero-setup demo; false requires
 	// rooms to be created explicitly with room_create.
@@ -59,6 +64,8 @@ func Load() (Config, error) {
 		TaskLease:          5 * time.Minute,
 		AckVisibility:      60 * time.Second,
 		RateLimit:          envBool("AGENTMESH_RATE_LIMIT", false),
+		TLSCert:            env("AGENTMESH_TLS_CERT", ""),
+		TLSKey:             env("AGENTMESH_TLS_KEY", ""),
 		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
 		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}
@@ -74,6 +81,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Auth == "token" && cfg.Store != "postgres" {
 		return Config{}, fmt.Errorf("AGENTMESH_AUTH=token requires AGENTMESH_STORE=postgres (tokens must survive restarts and be issuable out-of-process)")
+	}
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		return Config{}, fmt.Errorf("AGENTMESH_TLS_CERT and AGENTMESH_TLS_KEY must be set together")
 	}
 	if v := os.Getenv("AGENTMESH_PRESENCE_TTL"); v != "" {
 		d, err := time.ParseDuration(v)

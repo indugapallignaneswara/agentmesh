@@ -130,6 +130,7 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 | `AGENTMESH_TASK_LEASE` | `5m` | How long a task claim is held before another agent can steal it |
 | `AGENTMESH_ACK_VISIBILITY` | `60s` | Lease window for ack-mode inbox reads before an unacknowledged message redelivers |
 | `AGENTMESH_RATE_LIMIT` | `false` | Enable per-principal rate limits (send ~1/s, broadcast ~1/10s, events ~5/s) |
+| `AGENTMESH_TLS_CERT` / `AGENTMESH_TLS_KEY` | _(empty)_ | Serve HTTPS natively (TLS 1.2+). Set both, or terminate TLS at a reverse proxy |
 | `AGENTMESH_LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 
 ### Authentication

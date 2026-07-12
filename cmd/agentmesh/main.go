@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -145,16 +146,40 @@ func run() error {
 	// Count every HTTP response (outermost, so auth rejections are counted too).
 	handler = reg.HTTPMiddleware(handler)
 
+	tlsOn := cfg.TLSCert != "" && cfg.TLSKey != ""
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	if tlsOn {
+		// Modern baseline: TLS 1.2+ only.
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	// Bearer tokens over plaintext are recoverable by anyone on the path. If
+	// auth is on without TLS, the operator must be terminating TLS upstream —
+	// say so loudly, since silently shipping credentials in the clear is the
+	// classic self-hosting mistake.
+	if cfg.Auth != "off" && !tlsOn {
+		logger.Warn("auth is enabled but TLS is not: bearer tokens will be sent in plaintext — " +
+			"set AGENTMESH_TLS_CERT/AGENTMESH_TLS_KEY, or terminate TLS at a trusted reverse proxy")
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", cfg.HTTPAddr, "mcp_endpoint", "/mcp")
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		scheme := "http"
+		if tlsOn {
+			scheme = "https"
+		}
+		logger.Info("listening", "addr", cfg.HTTPAddr, "scheme", scheme, "mcp_endpoint", "/mcp")
+		var err error
+		if tlsOn {
+			err = srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()

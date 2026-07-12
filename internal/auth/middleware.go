@@ -48,6 +48,11 @@ func bearerSecret(r *http.Request) string {
 }
 
 func challenge(w http.ResponseWriter, msg string) {
-	w.Header().Set("WWW-Authenticate", `Bearer realm="agentmesh", error="invalid_token"`)
+	// Header names are case-insensitive per RFC 7230, but Go's Header.Set
+	// canonicalises to "Www-Authenticate" and some strict clients look for the
+	// registered spelling. Write the canonical form directly into the map.
+	h := w.Header()
+	delete(h, "Www-Authenticate")
+	h["WWW-Authenticate"] = []string{`Bearer realm="agentmesh", error="invalid_token"`}
 	http.Error(w, msg, http.StatusUnauthorized)
 }
