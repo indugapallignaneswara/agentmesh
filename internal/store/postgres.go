@@ -44,22 +44,27 @@ func jsonbArg(raw []byte) any {
 }
 
 func (s *Postgres) UpsertMember(ctx context.Context, m model.Member) (model.Member, error) {
+	if m.Role == "" {
+		m.Role = model.RoleMember
+	}
+	// On re-join the role is preserved (like JoinedAt): SetMemberRole is the
+	// only mutator after the initial insert.
 	const q = `
-		INSERT INTO members (workspace, name, kind, agent_card, joined_at, last_seen)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO members (workspace, name, kind, role, agent_card, joined_at, last_seen)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (workspace, name) DO UPDATE
 		SET kind = EXCLUDED.kind,
 		    agent_card = EXCLUDED.agent_card,
 		    last_seen = EXCLUDED.last_seen
-		RETURNING workspace, name, kind, agent_card, joined_at, last_seen`
+		RETURNING workspace, name, kind, role, agent_card, joined_at, last_seen`
 	row := s.pool.QueryRow(ctx, q,
-		m.Workspace, m.Name, string(m.Kind), jsonbArg(m.AgentCard), m.JoinedAt, m.LastSeen)
+		m.Workspace, m.Name, string(m.Kind), string(m.Role), jsonbArg(m.AgentCard), m.JoinedAt, m.LastSeen)
 	return scanMember(row)
 }
 
 func (s *Postgres) GetMember(ctx context.Context, workspace, name string) (model.Member, error) {
 	const q = `
-		SELECT workspace, name, kind, agent_card, joined_at, last_seen
+		SELECT workspace, name, kind, role, agent_card, joined_at, last_seen
 		FROM members WHERE workspace = $1 AND name = $2`
 	m, err := scanMember(s.pool.QueryRow(ctx, q, workspace, name))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -83,14 +88,14 @@ func (s *Postgres) TouchMember(ctx context.Context, workspace, name string, ts t
 
 func (s *Postgres) ListMembers(ctx context.Context, workspace string) ([]model.Member, error) {
 	const q = `
-		SELECT workspace, name, kind, agent_card, joined_at, last_seen
+		SELECT workspace, name, kind, role, agent_card, joined_at, last_seen
 		FROM members WHERE workspace = $1 ORDER BY name`
 	return s.queryMembers(ctx, q, workspace)
 }
 
 func (s *Postgres) ListActiveMembers(ctx context.Context, workspace string, notBefore time.Time) ([]model.Member, error) {
 	const q = `
-		SELECT workspace, name, kind, agent_card, joined_at, last_seen
+		SELECT workspace, name, kind, role, agent_card, joined_at, last_seen
 		FROM members WHERE workspace = $1 AND last_seen >= $2 ORDER BY name`
 	return s.queryMembers(ctx, q, workspace, notBefore)
 }
@@ -227,12 +232,13 @@ func (s *Postgres) TruncateAll(ctx context.Context) error {
 // scanMember scans a member row from any pgx row source.
 func scanMember(row pgx.Row) (model.Member, error) {
 	var m model.Member
-	var kind string
+	var kind, role string
 	var card []byte
-	if err := row.Scan(&m.Workspace, &m.Name, &kind, &card, &m.JoinedAt, &m.LastSeen); err != nil {
+	if err := row.Scan(&m.Workspace, &m.Name, &kind, &role, &card, &m.JoinedAt, &m.LastSeen); err != nil {
 		return model.Member{}, err
 	}
 	m.Kind = model.Kind(kind)
+	m.Role = model.Role(role)
 	m.AgentCard = card
 	return m, nil
 }

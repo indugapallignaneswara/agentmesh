@@ -32,16 +32,21 @@ var ErrRoomClosed = errors.New("room is closed")
 
 // Event type names recorded in the episodic log.
 const (
-	EventMemberJoined  = "member_joined"
-	EventMessageSent   = "message_sent"
-	EventBroadcast     = "broadcast"
-	EventTaskCreated   = "task_created"
-	EventTaskClaimed   = "task_claimed"
-	EventTaskCompleted = "task_completed"
-	EventTaskRetried   = "task_retried"
-	EventRoomCreated   = "room_created"
-	EventRoomClosed    = "room_closed"
-	EventRoomReopened  = "room_reopened"
+	EventMemberJoined   = "member_joined"
+	EventMessageSent    = "message_sent"
+	EventBroadcast      = "broadcast"
+	EventTaskCreated    = "task_created"
+	EventTaskClaimed    = "task_claimed"
+	EventTaskCompleted  = "task_completed"
+	EventTaskRetried    = "task_retried"
+	EventRoomCreated    = "room_created"
+	EventRoomClosed     = "room_closed"
+	EventRoomReopened   = "room_reopened"
+	EventMemberKicked   = "member_kicked"
+	EventMemberBanned   = "member_banned"
+	EventMemberUnbanned = "member_unbanned"
+	EventMemberLeft     = "member_left"
+	EventRoleChanged    = "role_changed"
 )
 
 // nameRe constrains workspace and member identifiers. They double as NATS
@@ -152,19 +157,34 @@ func (s *Service) Join(ctx context.Context, workspace, name string, kind model.K
 	if len(agentCard) > 0 && !json.Valid(agentCard) {
 		return model.Member{}, fmt.Errorf("%w: agent_card is not valid JSON", ErrInvalidInput)
 	}
+	// A banned name cannot (re)join until a moderator lifts the ban.
+	if _, err := s.store.GetBan(ctx, workspace, name); err == nil {
+		return model.Member{}, fmt.Errorf("%w: %q", store.ErrBanned, name)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return model.Member{}, err
+	}
+
 	now := s.now()
-	stored, err := s.store.UpsertMember(ctx, model.Member{
+	m := model.Member{
 		Workspace: workspace,
 		Name:      name,
 		Kind:      kind,
 		AgentCard: agentCard,
 		JoinedAt:  now,
 		LastSeen:  now,
-	})
+	}
+	// The room's creator becomes its owner on join; everyone else is a member.
+	// (UpsertMember preserves an already-assigned role on re-join.)
+	if room, rerr := s.store.GetWorkspace(ctx, workspace); rerr == nil && room.CreatedBy == name {
+		m.Role = model.RoleOwner
+	} else {
+		m.Role = model.RoleMember
+	}
+	stored, err := s.store.UpsertMember(ctx, m)
 	if err != nil {
 		return model.Member{}, err
 	}
-	s.appendEvent(ctx, workspace, name, EventMemberJoined, map[string]any{"kind": kind})
+	s.appendEvent(ctx, workspace, name, EventMemberJoined, map[string]any{"kind": kind, "role": stored.Role})
 	return stored, nil
 }
 
@@ -296,10 +316,16 @@ func (s *Service) ReadInbox(ctx context.Context, workspace, member string) ([]mo
 	if err != nil {
 		return nil, err
 	}
-	// Annotate each message with the sender's kind (human/agent) as a trust
-	// signal for the receiver — the LLM-tagging defense: receivers treat
-	// bodies as data, and the tag says who the data came from. Best-effort: a
-	// sender removed since writing simply yields no kind.
+	s.annotateSenderKinds(ctx, workspace, msgs)
+	s.touch(ctx, workspace, member)
+	return msgs, nil
+}
+
+// annotateSenderKinds tags each message with its sender's kind (human/agent) —
+// the LLM-tagging trust signal: receivers treat bodies as data, and the tag
+// says who the data came from. Best-effort: a sender removed since writing
+// simply yields no kind. Lookups are cached per sender.
+func (s *Service) annotateSenderKinds(ctx context.Context, workspace string, msgs []model.Message) {
 	kinds := make(map[string]model.Kind)
 	for i := range msgs {
 		k, ok := kinds[msgs[i].Sender]
@@ -311,8 +337,6 @@ func (s *Service) ReadInbox(ctx context.Context, workspace, member string) ([]mo
 		}
 		msgs[i].SenderKind = k
 	}
-	s.touch(ctx, workspace, member)
-	return msgs, nil
 }
 
 // PublishEvent appends a caller-defined event to the observation log.

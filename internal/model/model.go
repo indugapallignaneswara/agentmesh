@@ -47,17 +47,44 @@ func (k Kind) Valid() bool {
 	return k == KindHuman || k == KindAgent
 }
 
+// Role is a member's authority within a room. Owners and moderators (who must
+// also be human) can close/reopen rooms, kick/ban members, view message
+// history and change roles (owner only). The room creator becomes owner when
+// they join.
+type Role string
+
+const (
+	RoleOwner     Role = "owner"
+	RoleModerator Role = "moderator"
+	RoleMember    Role = "member"
+)
+
+// Valid reports whether r is a recognised role.
+func (r Role) Valid() bool {
+	return r == RoleOwner || r == RoleModerator || r == RoleMember
+}
+
 // Member is a participant in a workspace. Membership is durable: once a member
-// has joined it exists until explicitly removed. LastSeen drives the *presence*
-// display (who is active now) but never affects message delivery, which is
-// addressed to durable members regardless of activity.
+// has joined it exists until explicitly removed (leave/kick). LastSeen drives
+// the *presence* display (who is active now) but never affects message
+// delivery, which is addressed to durable members regardless of activity.
 type Member struct {
 	Workspace string          `json:"workspace"`
 	Name      string          `json:"name"`
 	Kind      Kind            `json:"kind"`
+	Role      Role            `json:"role,omitempty"`
 	AgentCard json.RawMessage `json:"agent_card,omitempty"`
 	JoinedAt  time.Time       `json:"joined_at"`
 	LastSeen  time.Time       `json:"last_seen"`
+}
+
+// Ban blocks a name from rejoining a room until lifted.
+type Ban struct {
+	Workspace string    `json:"workspace"`
+	Name      string    `json:"name"`
+	BannedBy  string    `json:"banned_by"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // MessageKind separates point-to-point messages from fan-out broadcasts.

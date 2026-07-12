@@ -64,6 +64,11 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("RoomEnsureIdempotent", func(t *testing.T) { testRoomEnsureIdempotent(t, newStore(t)) })
 	t.Run("RoomCloseReopenList", func(t *testing.T) { testRoomCloseReopenList(t, newStore(t)) })
 
+	t.Run("MemberRoleSetAndSurvivesRejoin", func(t *testing.T) { testMemberRoleSetAndSurvivesRejoin(t, newStore(t)) })
+	t.Run("RemoveMemberPurgesUndelivered", func(t *testing.T) { testRemoveMemberPurgesUndelivered(t, newStore(t)) })
+	t.Run("BanLifecycle", func(t *testing.T) { testBanLifecycle(t, newStore(t)) })
+	t.Run("ListMessagesPaging", func(t *testing.T) { testListMessagesPaging(t, newStore(t)) })
+
 	t.Run("TokenCreateGetByHash", func(t *testing.T) { testTokenCreateGetByHash(t, newStore(t)) })
 	t.Run("TokenRevocation", func(t *testing.T) { testTokenRevocation(t, newStore(t)) })
 	t.Run("TokenExpiry", func(t *testing.T) { testTokenExpiry(t, newStore(t)) })

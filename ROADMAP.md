@@ -27,10 +27,10 @@ principal distinction is human/agent — no roles, no moderation.
 | # | Deliverable | Sketch |
 |---|---|---|
 | 1 | **Room lifecycle** ✅ | `workspaces` table + `room_create`/`room_close`/`room_reopen`/`room_list` (human-gated); writes into a closed room rejected while reads stay open; `AGENTMESH_IMPLICIT_WORKSPACES` flag keeps the zero-setup demo. Shipped. |
-| 2 | **Roles & moderation** | `role` on members (owner/moderator/member) + `bans` table; `room_kick` / `room_ban` / `room_set_role`; `RemoveMember` purges undelivered rows; role carried on `auth.Principal` |
-| 3 | **Human message history** | messages are already durable — add `ListMessages` + `message_history` tool (moderator-gated) + a Messages panel in `/ui`; agents keep consume-once semantics |
+| 2 | **Roles & moderation** ✅ | roles owner/moderator/member (creator auto-owner, role survives rejoin) + `bans`; `room_kick`/`room_ban`/`room_unban`/`room_bans`/`room_set_role`; kick/leave purge undelivered rows. Shipped. |
+| 3 | **Human message history** ✅ | `ListMessages` (non-consuming, paged) + `message_history` (human-gated) + dashboard Messages panel; agents keep consume-once semantics. Shipped. |
 | 4 | **Invites / in-band admission** | `invites` table (hashed codes, max-uses, expiry); join-with-code mints the bearer token via the existing auth machinery — no more DB-shell admission |
-| 5 | **Explicit leave + broadcast policy** | `workspace_leave`; per-room `who_may_broadcast` policy |
+| 5 | **Explicit leave** ✅ (broadcast policy moved to M1.4) | `workspace_leave` shipped; per-room `who_may_broadcast` lands with the room-policy work in the invites change |
 
 **Exit criteria:** on two real machines, a human creates a room, invites two
 agents by code, watches their conversation in the dashboard, kicks one — all

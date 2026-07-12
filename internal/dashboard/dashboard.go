@@ -30,6 +30,7 @@ type overview struct {
 	Cursor      int64             `json:"cursor"`
 	MemoryQueue []model.Memory    `json:"memory_queue"`
 	Artifacts   []model.Artifact  `json:"artifacts"`
+	Messages    []model.Message   `json:"messages"`
 }
 
 // normalize replaces nil slices with empty ones so every list field in the
@@ -52,6 +53,9 @@ func (o *overview) normalize() {
 	}
 	if o.Artifacts == nil {
 		o.Artifacts = []model.Artifact{}
+	}
+	if o.Messages == nil {
+		o.Messages = []model.Message{}
 	}
 }
 
@@ -107,6 +111,10 @@ func Handler(svc *workspace.Service) http.Handler {
 			return
 		}
 		if ov.Artifacts, err = svc.ArtifactList(ctx, ws); err != nil {
+			httpErr(w, err)
+			return
+		}
+		if ov.Messages, err = svc.MessageHistoryPeek(ctx, ws, 50); err != nil {
 			httpErr(w, err)
 			return
 		}

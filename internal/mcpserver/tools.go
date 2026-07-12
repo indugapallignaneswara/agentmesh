@@ -84,6 +84,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	registerMemoryTools(s, svc)
 	registerArtifactTools(s, svc)
 	registerRoomTools(s, svc)
+	registerModerationTools(s, svc)
 }
 
 // --- tool argument and result types ---

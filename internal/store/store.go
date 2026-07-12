@@ -42,6 +42,9 @@ var (
 
 	// ErrRoomExists is returned by CreateWorkspace when the room already exists.
 	ErrRoomExists = errors.New("room already exists")
+
+	// ErrBanned is returned by GetBan (via the service) when a name is banned.
+	ErrBanned = errors.New("member is banned")
 )
 
 // Store is the authoritative system of record for the workspace. All timestamps
@@ -62,6 +65,32 @@ type Store interface {
 
 	// ListMembers returns every durable member of a workspace, ordered by name.
 	ListMembers(ctx context.Context, workspace string) ([]model.Member, error)
+
+	// SetMemberRole updates a member's role. Returns ErrNotFound if the member
+	// does not exist.
+	SetMemberRole(ctx context.Context, workspace, name string, role model.Role) (model.Member, error)
+
+	// RemoveMember deletes a member and all of its undelivered deliveries (so a
+	// kicked/departed member stops accruing inbox rows). Returns ErrNotFound if
+	// the member does not exist.
+	RemoveMember(ctx context.Context, workspace, name string) error
+
+	// CreateBan records a ban for (workspace, name); upserts if one exists.
+	CreateBan(ctx context.Context, b model.Ban) (model.Ban, error)
+
+	// GetBan returns the ban for (workspace, name) or ErrNotFound.
+	GetBan(ctx context.Context, workspace, name string) (model.Ban, error)
+
+	// RemoveBan lifts a ban. Returns ErrNotFound if none exists.
+	RemoveBan(ctx context.Context, workspace, name string) error
+
+	// ListBans returns a workspace's bans ordered by name.
+	ListBans(ctx context.Context, workspace string) ([]model.Ban, error)
+
+	// ListMessages returns a room's messages oldest-first for human review
+	// (non-consuming, unlike ReadInbox). afterID pages from the last-seen id
+	// (empty for the start); limit caps the result.
+	ListMessages(ctx context.Context, workspace, afterID string, limit int) ([]model.Message, error)
 
 	// ListActiveMembers returns members whose LastSeen is at or after notBefore.
 	// It backs the presence display and never affects delivery.

@@ -81,6 +81,9 @@ trade-off.
 | `memory_queue` / `memory_review` | Human-only: inspect and approve/reject pending shared submissions |
 | `get_artifact` / `update_artifact` / `list_artifacts` | Co-edited docs with optimistic concurrency — stale writes get a conflict + merge guidance, never lost updates |
 | `room_create` / `room_close` / `room_reopen` / `room_list` | Room lifecycle — humans own rooms; a closed room rejects writes but stays readable |
+| `room_kick` / `room_ban` / `room_unban` / `room_bans` / `room_set_role` | Moderation — owner/moderator humans eject or ban members and grant roles; kicks purge undelivered inboxes; bans block rejoin |
+| `workspace_leave` | Self-service departure (stops accruing deliveries) |
+| `message_history` | Human-only, non-consuming review of the room's conversation (also a dashboard panel) |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so

@@ -18,6 +18,7 @@ type memberDTO struct {
 	Workspace string     `json:"workspace"`
 	Name      string     `json:"name"`
 	Kind      model.Kind `json:"kind"`
+	Role      model.Role `json:"role,omitempty"`
 	AgentCard any        `json:"agent_card,omitempty"`
 	JoinedAt  string     `json:"joined_at"`
 	LastSeen  string     `json:"last_seen"`
@@ -54,6 +55,7 @@ func toMemberDTO(m model.Member) memberDTO {
 		Workspace: m.Workspace,
 		Name:      m.Name,
 		Kind:      m.Kind,
+		Role:      m.Role,
 		AgentCard: rawToAny(m.AgentCard),
 		JoinedAt:  m.JoinedAt.UTC().Format(rfc3339Nano),
 		LastSeen:  m.LastSeen.UTC().Format(rfc3339Nano),

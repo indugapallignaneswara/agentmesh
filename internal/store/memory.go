@@ -24,6 +24,7 @@ type Memory struct {
 	arts     map[string]model.Artifact // key: workspace + "\x00" + name
 	tokens   []model.AuthToken
 	rooms    map[string]model.Workspace // key: room name
+	bans     map[string]model.Ban       // key: workspace + "\x00" + name
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises
@@ -52,6 +53,7 @@ func NewMemory() *Memory {
 		members: make(map[string]model.Member),
 		arts:    make(map[string]model.Artifact),
 		rooms:   make(map[string]model.Workspace),
+		bans:    make(map[string]model.Ban),
 	}
 }
 
@@ -60,9 +62,13 @@ func memKey(workspace, name string) string { return workspace + "\x00" + name }
 func (s *Memory) UpsertMember(_ context.Context, m model.Member) (model.Member, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if m.Role == "" {
+		m.Role = model.RoleMember
+	}
 	k := memKey(m.Workspace, m.Name)
 	if existing, ok := s.members[k]; ok {
-		// Preserve the original JoinedAt; refresh mutable fields.
+		// Preserve the original JoinedAt and Role; refresh mutable fields.
+		// SetMemberRole is the only role mutator after the initial insert.
 		existing.Kind = m.Kind
 		existing.AgentCard = m.AgentCard
 		existing.LastSeen = m.LastSeen

@@ -49,6 +49,7 @@
 <main>
   <section><h2>Rooms</h2><ul id="rooms"></ul></section>
   <section><h2>Presence</h2><ul id="presence"></ul></section>
+  <section><h2>Messages</h2><ul id="messages"></ul></section>
   <section><h2>Event stream</h2><ul id="events"></ul></section>
   <section><h2>Task board</h2><ul id="tasks"></ul></section>
   <section><h2>Memory review queue</h2><ul id="queue"></ul></section>
@@ -102,8 +103,14 @@ async function tick() {
     });
     if (!ws) return;
 
-    render("presence", d.presence, m =>
-      `<li><span class="tag ${esc(m.kind)}">${esc(m.kind)}</span>${esc(m.name)}</li>`);
+    render("presence", d.presence, m => {
+      const role = m.role && m.role !== "member" ? ` <span class="tag pending">${esc(m.role)}</span>` : "";
+      return `<li><span class="tag ${esc(m.kind)}">${esc(m.kind)}</span>${esc(m.name)}${role}</li>`;
+    });
+
+    render("messages", d.messages, m =>
+      `<li><span class="tag ${esc(m.sender_kind || 'agent')}">${esc(m.sender_kind || '?')}</span>` +
+      `<b>${esc(m.sender)}</b>${m.kind === 'broadcast' ? ' (broadcast)' : ' → ' + esc(m.recipient || '')}: ${esc(m.body)}</li>`);
 
     if (d.events && d.events.length) {
       eventLog.push(...d.events);
