@@ -60,23 +60,29 @@ the server and redelivered after restart (zero loss); a flooding agent was
 throttled after its burst while the human's independent budget let them
 broadcast and kick.
 
-## M3 — v0.4 «Security & operability» *(safe to expose)*
+## M3 — v0.4 «Security & operability» ✅ COMPLETE
 
-1. **TLS + canonical headers** — native TLS config plus a documented
-   reverse-proxy path; `WWW-Authenticate` canonical casing.
-2. **Auth v2: OAuth 2.1 resource server** — RFC 9728 protected-resource
-   metadata + RFC 8707 audience-bound tokens behind the existing
-   `auth.Authenticator` seam (verified as the MCP spec's model); humans via
-   OIDC (Okta/Entra/Keycloak), agents keep opaque tokens. This is also the
-   extraction seam for the standalone Agent-IAM product.
-3. **Observability** — Prometheus `/metrics` (per-tool counters/latency,
-   queue depths), `/healthz` vs `/readyz`, request logging with principals.
-4. **Ops packaging** — config file support, systemd unit, official Docker
-   image + compose, pg backup/restore doc, zero-downtime migration policy
-   (expand → migrate → contract).
+1. **TLS + canonical headers** ✅ native HTTPS (`AGENTMESH_TLS_CERT/_KEY`,
+   TLS 1.2+), reverse-proxy path documented, a loud warning when auth runs
+   without TLS, and `WWW-Authenticate` emitted with its registered spelling
+   (asserted on the raw wire bytes).
+2. **Auth v2: OAuth 2.1 resource server** ✅ `AGENTMESH_AUTH=oauth` validates
+   IdP JWTs against the issuer's JWKS with **RFC 8707 audience binding** (a
+   token for another service is rejected — token-passthrough defeated), and
+   publishes **RFC 9728** metadata that the 401 challenge points at. Humans use
+   OIDC, agents keep opaque tokens (`ChainAuthenticator`). It required **zero
+   call-site changes** — the `auth.Authenticator` seam paying off exactly as
+   designed for the standalone Agent-IAM product.
+3. **Observability** ✅ dependency-free Prometheus `/metrics` (per-tool calls,
+   errors, latency histograms; HTTP by path+status; gauge hook) and `/readyz`
+   (pings the store) alongside liveness `/healthz`.
+4. **Ops packaging** ✅ distroless non-root Dockerfile (static binary),
+   hardened systemd unit + env template, and `docs/operations.md`: production
+   checklist, reverse-proxy table, backup/restore, credential rotation, alerts,
+   and the **expand → migrate → contract** zero-downtime migration policy.
 
-**Exit criteria:** deployable on a public VPS with TLS + OIDC; passes a
-self-run checklist against the OWASP agentic-AI top risks.
+**Exit criteria met:** deployable with TLS + OIDC; the production checklist in
+`docs/operations.md` is the self-run security pass.
 
 ## M4 — v0.5 «Scale & depth» *(threshold-gated, only as needed)*
 

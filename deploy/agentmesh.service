@@ -1,0 +1,39 @@
+# systemd unit for a self-hosted AgentMesh node.
+#
+#   sudo cp deploy/agentmesh.service /etc/systemd/system/
+#   sudo cp deploy/agentmesh.env /etc/agentmesh/agentmesh.env   # edit first
+#   sudo systemctl daemon-reload && sudo systemctl enable --now agentmesh
+
+[Unit]
+Description=AgentMesh coordination server
+Documentation=https://github.com/indugapallignaneswara/agentmesh
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentmesh
+Group=agentmesh
+ExecStart=/usr/local/bin/agentmesh
+EnvironmentFile=/etc/agentmesh/agentmesh.env
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: the server needs no privileges beyond a socket and its config.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Allow reading TLS material if it lives here.
+ReadOnlyPaths=/etc/agentmesh
+
+[Install]
+WantedBy=multi-user.target
