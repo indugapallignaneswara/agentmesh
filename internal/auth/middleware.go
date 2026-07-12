@@ -1,9 +1,17 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 )
+
+// ResourceMetadataURL, when set, is advertised in the 401 challenge as
+// `resource_metadata`. The MCP authorization spec requires a protected server
+// to point clients at its RFC 9728 metadata so they can discover which
+// authorization server to obtain a token from. Empty in token mode (opaque
+// tokens are issued out of band, so there is nothing to discover).
+var ResourceMetadataURL string
 
 // Middleware gates an HTTP handler behind bearer-token authentication.
 // Requests to paths in passthrough skip authentication entirely (health
@@ -51,8 +59,12 @@ func challenge(w http.ResponseWriter, msg string) {
 	// Header names are case-insensitive per RFC 7230, but Go's Header.Set
 	// canonicalises to "Www-Authenticate" and some strict clients look for the
 	// registered spelling. Write the canonical form directly into the map.
+	v := `Bearer realm="agentmesh", error="invalid_token"`
+	if ResourceMetadataURL != "" {
+		v += fmt.Sprintf(`, resource_metadata=%q`, ResourceMetadataURL)
+	}
 	h := w.Header()
 	delete(h, "Www-Authenticate")
-	h["WWW-Authenticate"] = []string{`Bearer realm="agentmesh", error="invalid_token"`}
+	h["WWW-Authenticate"] = []string{v}
 	http.Error(w, msg, http.StatusUnauthorized)
 }

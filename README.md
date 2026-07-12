@@ -122,7 +122,8 @@ Cursor / Codex (`mcp.json` / `~/.codex/config.toml`) — see
 |----------|---------|---------|
 | `AGENTMESH_HTTP_ADDR` | `:8080` | HTTP listen address |
 | `AGENTMESH_STORE` | `postgres` | `postgres` (durable) or `memory` (ephemeral, zero-dependency — for demos/trials) |
-| `AGENTMESH_AUTH` | `off` | `off` (trusted network only) or `token` (bearer tokens required; needs postgres) |
+| `AGENTMESH_AUTH` | `off` | `off` (trusted network only), `token` (opaque bearer tokens), or `oauth` (OAuth 2.1 resource server: IdP JWTs for humans **and** opaque tokens for agents). `token`/`oauth` need postgres |
+| `AGENTMESH_OAUTH_ISSUER` / `_AUDIENCE` / `_JWKS_URL` | _(empty)_ | Required when `AGENTMESH_AUTH=oauth`. Audience is this server's canonical URI and is enforced as `aud` (RFC 8707) |
 | `AGENTMESH_IMPLICIT_WORKSPACES` | `true` | `true` auto-creates a room on first join (zero-setup demo); `false` requires `room_create` first |
 | `AGENTMESH_DATABASE_URL` | `postgres://agentmesh:agentmesh@localhost:5432/agentmesh?sslmode=disable` | Postgres DSN (used when store is `postgres`) |
 | `AGENTMESH_NATS_URL` | _(empty)_ | NATS URL; empty ⇒ no-op bus |

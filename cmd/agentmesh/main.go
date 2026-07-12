@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -130,15 +131,43 @@ func run() error {
 	// the dashboard shell page requires a bearer token; the page itself is an
 	// empty shell whose data calls (/ui/api) are gated.
 	var handler http.Handler = mux
-	if cfg.Auth == "token" {
-		authn := &auth.TokenAuthenticator{Store: st}
-		// Open endpoints: the agent card (how clients discover the security
-		// scheme in the first place), the health/readiness probes and the
-		// metrics scrape — infrastructure must reach these without a
-		// workspace credential. /metrics exposes no message content.
+	if cfg.Auth != "off" {
+		// Agents always keep opaque tokens: a machine has no interactive login,
+		// which is exactly what opaque credentials are for.
+		var authn auth.Authenticator = &auth.TokenAuthenticator{Store: st}
+
+		if cfg.Auth == "oauth" {
+			jwtAuth, err := auth.NewJWTAuthenticator(auth.OAuthConfig{
+				Issuer:   cfg.OAuthIssuer,
+				Audience: cfg.OAuthAudience,
+				JWKSURL:  cfg.OAuthJWKSURL,
+			})
+			if err != nil {
+				return err
+			}
+			// Humans arrive with IdP-issued JWTs, agents with amt_ tokens; try
+			// the JWT path first, then fall back.
+			authn = &auth.ChainAuthenticator{
+				Authenticators: []auth.Authenticator{jwtAuth, authn},
+			}
+			// Publish RFC 9728 metadata and point the 401 challenge at it, so
+			// spec-conformant MCP clients can discover where to get a token.
+			mux.Handle("GET "+discovery.ProtectedResourcePath,
+				discovery.ProtectedResourceHandler(cfg.OAuthAudience, cfg.OAuthIssuer))
+			auth.ResourceMetadataURL = strings.TrimSuffix(cfg.OAuthAudience, "/mcp") + discovery.ProtectedResourcePath
+			logger.Info("authentication enabled", "mode", "oauth",
+				"issuer", cfg.OAuthIssuer, "audience", cfg.OAuthAudience)
+		} else {
+			logger.Info("authentication enabled", "mode", "token")
+		}
+
+		// Open endpoints: the agent card and the OAuth metadata (how clients
+		// discover the security scheme in the first place), the health/readiness
+		// probes and the metrics scrape — infrastructure must reach these
+		// without a workspace credential. /metrics exposes no message content.
 		handler = auth.Middleware(authn,
-			"/healthz", "/readyz", "/metrics", "/ui", discovery.WellKnownPath)(mux)
-		logger.Info("authentication enabled", "mode", "token")
+			"/healthz", "/readyz", "/metrics", "/ui",
+			discovery.WellKnownPath, discovery.ProtectedResourcePath)(mux)
 	} else {
 		logger.Warn("authentication is OFF; anyone who can reach this address can join — use only on a trusted network")
 	}

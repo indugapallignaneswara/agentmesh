@@ -16,12 +16,18 @@ type Config struct {
 	// "memory" (ephemeral, zero-dependency — for demos, local trials, and the
 	// loopback validation). Memory state is lost on restart.
 	Store string
-	// Auth selects the authentication mode: "off" (default; trusted-network
-	// mode, today's behaviour) or "token" (bearer tokens required on /mcp and
-	// /ui/api; issue them with `agentmesh token create`). Token mode requires
-	// the postgres store so credentials survive restarts and can be issued
-	// out-of-process.
+	// Auth selects the authentication mode:
+	//   off    trusted-network mode (default)
+	//   token  opaque bearer tokens (`agentmesh token create`)
+	//   oauth  OAuth 2.1 resource server: validate IdP-issued JWTs (humans)
+	//          AND still accept opaque agent tokens (machines have no
+	//          interactive login).
+	// token/oauth require the postgres store so credentials survive restarts.
 	Auth string
+	// OAuth settings, required when Auth == "oauth".
+	OAuthIssuer   string // expected `iss`
+	OAuthAudience string // this server's canonical URI; validated as `aud` (RFC 8707)
+	OAuthJWKSURL  string // issuer's signing keys
 	// DatabaseURL is the Postgres DSN (authoritative store).
 	DatabaseURL string
 	// NATSURL is the NATS server URL. When empty, a no-op bus is used.
@@ -66,6 +72,9 @@ func Load() (Config, error) {
 		RateLimit:          envBool("AGENTMESH_RATE_LIMIT", false),
 		TLSCert:            env("AGENTMESH_TLS_CERT", ""),
 		TLSKey:             env("AGENTMESH_TLS_KEY", ""),
+		OAuthIssuer:        env("AGENTMESH_OAUTH_ISSUER", ""),
+		OAuthAudience:      env("AGENTMESH_OAUTH_AUDIENCE", ""),
+		OAuthJWKSURL:       env("AGENTMESH_OAUTH_JWKS_URL", ""),
 		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
 		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}
@@ -75,12 +84,17 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("AGENTMESH_STORE must be 'postgres' or 'memory', got %q", cfg.Store)
 	}
 	switch cfg.Auth {
-	case "off", "token":
+	case "off", "token", "oauth":
 	default:
-		return Config{}, fmt.Errorf("AGENTMESH_AUTH must be 'off' or 'token', got %q", cfg.Auth)
+		return Config{}, fmt.Errorf("AGENTMESH_AUTH must be 'off', 'token' or 'oauth', got %q", cfg.Auth)
 	}
-	if cfg.Auth == "token" && cfg.Store != "postgres" {
-		return Config{}, fmt.Errorf("AGENTMESH_AUTH=token requires AGENTMESH_STORE=postgres (tokens must survive restarts and be issuable out-of-process)")
+	if cfg.Auth != "off" && cfg.Store != "postgres" {
+		return Config{}, fmt.Errorf("AGENTMESH_AUTH=%s requires AGENTMESH_STORE=postgres (credentials must survive restarts and be issuable out-of-process)", cfg.Auth)
+	}
+	if cfg.Auth == "oauth" {
+		if cfg.OAuthIssuer == "" || cfg.OAuthAudience == "" || cfg.OAuthJWKSURL == "" {
+			return Config{}, fmt.Errorf("AGENTMESH_AUTH=oauth requires AGENTMESH_OAUTH_ISSUER, AGENTMESH_OAUTH_AUDIENCE and AGENTMESH_OAUTH_JWKS_URL")
+		}
 	}
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return Config{}, fmt.Errorf("AGENTMESH_TLS_CERT and AGENTMESH_TLS_KEY must be set together")
