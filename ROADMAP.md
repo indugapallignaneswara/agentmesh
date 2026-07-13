@@ -10,7 +10,7 @@
 **Where we are (v0.1-alpha):** phases 0–4 of the original blueprint are built
 and CI-enforced — core loop, task board (SKIP-LOCKED + leases + retry),
 review-gated shared memory, co-edited artifacts, dashboard, bearer-token auth
-with per-principal enforcement, A2A discovery card. 20 MCP tools, `coord` CLI,
+with per-principal enforcement, A2A discovery card. 36 MCP tools, `coord` CLI,
 cross-engine contract suite, black-box QA and a verified code audit behind us.
 
 What separates this from production is not more features — it is **the room
