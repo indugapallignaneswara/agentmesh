@@ -14,10 +14,34 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// migrateAdvisoryLockKey is an arbitrary but fixed 64-bit key identifying the
+// schema-migration critical section. All replicas use the same key so that at
+// most one runs migrations at a time.
+const migrateAdvisoryLockKey int64 = 0x41474d4d4947 // "AGMMIG"
+
 // migrate applies any not-yet-applied SQL migrations in lexical order, each in
 // its own transaction, tracking applied versions in schema_migrations. The
 // filename prefix before the first underscore is the integer version.
+//
+// The whole run holds a session-level Postgres advisory lock, so rolling
+// several replicas at once is safe: the first to boot migrates while the others
+// block on the lock, then acquire it and find every version already applied.
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	// Pin one connection for the lock's lifetime — advisory locks are held by
+	// the session that took them, so lock and unlock must run on the same conn.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrateAdvisoryLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		// Best-effort release; the lock also drops when the session ends.
+		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, migrateAdvisoryLockKey)
+	}()
+
 	if _, err := pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version    bigint      PRIMARY KEY,
