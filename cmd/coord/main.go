@@ -7,8 +7,10 @@
 //
 //	coord [--endpoint URL] [--json] <command> [flags]
 //
-// Commands: join, presence, send, inbox, broadcast, publish, subscribe.
-// Several flags fall back to environment variables so hooks can stay terse:
+// Commands: join, presence, send, inbox, ack, broadcast, publish, subscribe,
+// task, memory, artifact, room, invite, mod, leave, history (run "coord -h" for
+// the full list). Several flags fall back to environment variables so hooks can
+// stay terse:
 //
 //	AGENTMESH_ENDPOINT   default endpoint (else http://localhost:8080/mcp)
 //	AGENTMESH_WORKSPACE  default --workspace

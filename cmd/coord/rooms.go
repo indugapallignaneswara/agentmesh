@@ -44,7 +44,11 @@ func cmdRoomCreate(ctx context.Context, cl *client.Client, out *output, args []s
 		return err
 	}
 	out.emit(raw, func(w io.Writer, b []byte) {
-		var r struct{ Name, Status, CreatedBy string }
+		var r struct {
+			Name      string `json:"name"`
+			Status    string `json:"status"`
+			CreatedBy string `json:"created_by"`
+		}
 		_ = json.Unmarshal(b, &r)
 		fmt.Fprintf(w, "created room %q (%s, owner %s)\n", r.Name, r.Status, r.CreatedBy)
 	})
