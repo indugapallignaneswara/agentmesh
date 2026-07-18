@@ -84,6 +84,12 @@ func RunSuite(t *testing.T, newStore Factory) {
 	t.Run("TokenCreateGetByHash", func(t *testing.T) { testTokenCreateGetByHash(t, newStore(t)) })
 	t.Run("TokenRevocation", func(t *testing.T) { testTokenRevocation(t, newStore(t)) })
 	t.Run("TokenExpiry", func(t *testing.T) { testTokenExpiry(t, newStore(t)) })
+
+	t.Run("UsageSummaryWindowed", func(t *testing.T) { testUsageSummary(t, newStore(t)) })
+	t.Run("UsageDailyRollupAccumulates", func(t *testing.T) { testUsageDailyRollup(t, newStore(t)) })
+	t.Run("UsageEmptyWorkspace", func(t *testing.T) { testUsageEmpty(t, newStore(t)) })
+	t.Run("UsageWorkspaceIsolation", func(t *testing.T) { testUsageIsolation(t, newStore(t)) })
+	t.Run("UsageKindSticky", func(t *testing.T) { testUsageKindSticky(t, newStore(t)) })
 }
 
 func testUpsert(t *testing.T, s store.Store) {

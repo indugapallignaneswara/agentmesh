@@ -284,3 +284,66 @@ type Event struct {
 	Payload   json.RawMessage `json:"payload,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
 }
+
+// --- Usage metering (M6) ---
+
+// UsageDirection labels which side of a tool call a usage event measures.
+// Ingress bytes are what the caller sent INTO the mesh (their completion
+// tokens at their vendor); egress bytes are what the mesh returned to the
+// caller (future prompt tokens in the caller's context window). Reported rows
+// carry vendor-exact counts a client volunteered (M7) and are never
+// platform-verified.
+type UsageDirection string
+
+const (
+	UsageIngress  UsageDirection = "ingress"
+	UsageEgress   UsageDirection = "egress"
+	UsageReported UsageDirection = "reported"
+)
+
+// UsageEvent is one metered observation of coordination traffic. Bytes are the
+// immutable ground truth; token counts are derived at display time with a
+// configurable ratio so history re-renders under recalibration (the design
+// decision in docs/token-metering.md §3 — deliberately NOT stored per event).
+// The ledger stores sizes, never payload content: a metering leak must not
+// become a data leak.
+type UsageEvent struct {
+	TS        time.Time      `json:"ts"`
+	Workspace string         `json:"workspace"`
+	Member    string         `json:"member"`
+	Kind      Kind           `json:"kind"`
+	Tool      string         `json:"tool"`
+	Direction UsageDirection `json:"direction"`
+	Bytes     int64          `json:"bytes"`
+	// Authenticated is true when the attribution came from a verified
+	// Principal; false when it was sniffed from tool arguments in auth-off
+	// mode (a claimed, not proven, identity).
+	Authenticated bool `json:"authenticated"`
+	// Reported vendor usage (direction == reported only; zero otherwise).
+	ReportedPromptTokens     int64  `json:"reported_prompt_tokens,omitempty"`
+	ReportedCompletionTokens int64  `json:"reported_completion_tokens,omitempty"`
+	Vendor                   string `json:"vendor,omitempty"`
+	Model                    string `json:"model,omitempty"`
+}
+
+// UsageSummary is per-member aggregated usage inside one workspace and window.
+type UsageSummary struct {
+	Workspace                string `json:"workspace"`
+	Member                   string `json:"member"`
+	Kind                     Kind   `json:"kind"`
+	IngressBytes             int64  `json:"ingress_bytes"`
+	EgressBytes              int64  `json:"egress_bytes"`
+	Events                   int64  `json:"events"`
+	ReportedPromptTokens     int64  `json:"reported_prompt_tokens"`
+	ReportedCompletionTokens int64  `json:"reported_completion_tokens"`
+}
+
+// UsageDay is one day of a workspace's rolled-up usage (UTC day buckets).
+type UsageDay struct {
+	Workspace    string    `json:"workspace"`
+	Member       string    `json:"member"`
+	Day          time.Time `json:"day"` // midnight UTC
+	IngressBytes int64     `json:"ingress_bytes"`
+	EgressBytes  int64     `json:"egress_bytes"`
+	Events       int64     `json:"events"`
+}

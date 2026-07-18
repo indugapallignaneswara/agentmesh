@@ -26,6 +26,8 @@ type Memory struct {
 	rooms    map[string]model.Workspace // key: room name
 	bans     map[string]model.Ban       // key: workspace + "\x00" + name
 	invites  []model.Invite
+	usage    []model.UsageEvent         // append-only usage ledger (memory_usage.go)
+	daily    map[string]*model.UsageDay // key: workspace + "\x00" + member + "\x00" + day; lazily initialised
 }
 
 // memTask holds a task plus its dependency ids. The single Memory.mu serialises

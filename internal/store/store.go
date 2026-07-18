@@ -276,4 +276,15 @@ type Store interface {
 
 	// Close releases any resources held by the store.
 	Close() error
+
+	// AppendUsage appends a batch of usage events to the ledger and folds them
+	// into the daily rollup. Best-effort by contract: callers batch and may drop.
+	AppendUsage(ctx context.Context, events []model.UsageEvent) error
+
+	// UsageSummary aggregates per-member usage for a workspace in [from, to).
+	UsageSummary(ctx context.Context, workspace string, from, to time.Time) ([]model.UsageSummary, error)
+
+	// UsageDaily returns the last `days` UTC day-buckets for a workspace, newest
+	// day first, all members.
+	UsageDaily(ctx context.Context, workspace string, days int) ([]model.UsageDay, error)
 }
