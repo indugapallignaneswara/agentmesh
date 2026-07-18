@@ -55,6 +55,13 @@ func (s *PGStore) migrate(ctx context.Context) error {
 }
 
 func (s *PGStore) CreateClient(ctx context.Context, c Client) error {
+	// allowed_scopes is text[] NOT NULL. pgx encodes a nil slice as SQL NULL
+	// (the column DEFAULT does not apply to an explicit NULL), which would make
+	// a zero-scope client fail here while succeeding in MemStore. Normalise to
+	// an empty array so both stores round-trip a scopeless client identically.
+	if c.AllowedScopes == nil {
+		c.AllowedScopes = []string{}
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO iam_clients
 			(client_id, secret_hash, workspace, subject, kind, allowed_scopes, token_ttl_secs, disabled, created_at)
