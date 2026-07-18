@@ -1,0 +1,40 @@
+# systemd unit for AgentMesh's Agent-IAM authorization server.
+#
+#   sudo cp deploy/agentiam.service /etc/systemd/system/
+#   sudo cp deploy/agentiam.env /etc/agentiam/agentiam.env   # edit first
+#   sudo systemctl daemon-reload && sudo systemctl enable --now agentiam
+
+[Unit]
+Description=Agent-IAM OAuth 2.1 authorization server for agents
+Documentation=https://github.com/indugapallignaneswara/agentmesh/blob/main/docs/agentiam.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentiam
+Group=agentiam
+ExecStart=/usr/local/bin/agentiam serve
+EnvironmentFile=/etc/agentiam/agentiam.env
+Restart=on-failure
+RestartSec=5s
+
+# Hardening: the server needs no privileges beyond a socket, its config, and
+# read access to the signing key.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+# Allow reading the signing key and env if they live here.
+ReadOnlyPaths=/etc/agentiam
+
+[Install]
+WantedBy=multi-user.target

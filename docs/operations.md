@@ -83,6 +83,86 @@ With `AGENTMESH_AUTH=oauth`, humans authenticate with IdP-issued JWTs
 canonical URI per RFC 8707) while agents keep opaque tokens. Clients discover
 the authorization server at `/.well-known/oauth-protected-resource`.
 
+## Agent-IAM (agentiam)
+
+`agentiam` is the OAuth 2.1 authorization server for agents that ships in the
+same archive and image (design: [`docs/agentiam.md`](agentiam.md)). It issues
+short-lived RS256 JWTs that AgentMesh validates unchanged in
+`AGENTMESH_AUTH=oauth` mode — an "IdP for agents" instead of long-lived opaque
+tokens.
+
+### 1. Generate a signing key
+
+RSA-2048 private key in PEM; the server derives the `kid` and publishes the
+public half at `/.well-known/jwks.json`:
+
+```bash
+sudo install -d -o root -g agentiam -m 0750 /etc/agentiam
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  -out /etc/agentiam/signing-key.pem
+sudo chown root:agentiam /etc/agentiam/signing-key.pem
+sudo chmod 0640 /etc/agentiam/signing-key.pem
+```
+
+Without `AGENTIAM_SIGNING_KEY` the server generates an *ephemeral* key — fine
+for a demo, but every issued token dies with the process.
+
+### 2. Run the server
+
+```bash
+AGENTIAM_ISSUER=https://iam.example.com \
+AGENTIAM_HTTP_ADDR=127.0.0.1:8090 \
+AGENTIAM_SIGNING_KEY=/etc/agentiam/signing-key.pem \
+AGENTIAM_TOKEN_TTL=15m \
+AGENTIAM_DATABASE_URL='postgres://agentiam:...@localhost:5432/agentiam?sslmode=require' \
+  agentiam serve
+```
+
+Or as a service: `deploy/agentiam.service` + `deploy/agentiam.env` mirror the
+AgentMesh unit (same hardening). Endpoints: `POST /token`,
+`GET /.well-known/jwks.json`, `GET /.well-known/oauth-authorization-server`,
+`GET /healthz`. Like the AgentMesh server, terminate TLS at a reverse proxy in
+front of it (or keep it loopback-only) — bearer credentials must never cross
+an untrusted network in plaintext.
+
+### 3. Register an agent client
+
+```bash
+# Same AGENTIAM_DATABASE_URL as the server; talks to the store directly.
+agentiam client register --workspace team --member backend --kind agent \
+  --scopes 'room:team messages:write' --ttl 15m
+# → prints client_id and (once) client_secret
+agentiam client list --workspace team
+agentiam client disable --id agt_...     # revoke; --enable to reverse
+```
+
+At runtime the agent exchanges those for a short-lived token:
+
+```bash
+curl -s https://iam.example.com/token \
+  -d grant_type=client_credentials \
+  -d client_id=agt_... -d client_secret=... \
+  -d resource=https://mesh.example.com     # RFC 8707: the AgentMesh node URL
+# → { "access_token": "<RS256 JWT>", "token_type": "Bearer", "expires_in": 900 }
+```
+
+### 4. Point AgentMesh at it
+
+The key part — the resource server trusts Agent-IAM via three env vars
+(`AGENTMESH_AUTH=oauth` also requires `AGENTMESH_STORE=postgres`):
+
+```bash
+AGENTMESH_AUTH=oauth
+AGENTMESH_OAUTH_ISSUER=https://iam.example.com                        # = AGENTIAM_ISSUER, exactly
+AGENTMESH_OAUTH_AUDIENCE=https://mesh.example.com                     # this node's canonical URL (token `aud`)
+AGENTMESH_OAUTH_JWKS_URL=https://iam.example.com/.well-known/jwks.json
+```
+
+Audience binding means a token minted for one node is rejected by every other
+node. The agent then calls AgentMesh with `Authorization: Bearer <token>`
+(`coord --token <jwt> ...`). End-to-end proof on one host:
+`./scripts/iam-demo.sh`.
+
 ## Migrations
 
 Migrations are embedded in the binary and applied automatically on boot, under

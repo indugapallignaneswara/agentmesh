@@ -29,11 +29,21 @@ builds:
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
 
+  - id: agentiam
+    main: ./cmd/agentiam
+    binary: agentiam
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
 archives:
-  # One archive per platform containing BOTH binaries: the server is useless to
-  # evaluate without the CLI, and a newcomer should not have to find it.
+  # One archive per platform containing ALL the binaries: the server is useless
+  # to evaluate without the CLI, and a newcomer should not have to find them.
+  # agentiam is the OAuth 2.1 authorization server for agents (docs/agentiam.md).
   - id: default
-    ids: [agentmesh, coord]
+    ids: [agentmesh, coord, agentiam]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     format_overrides:
