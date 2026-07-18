@@ -215,6 +215,12 @@ type Store interface {
 	// UpdatedAt. Returns ErrNotFound if the room does not exist.
 	SetWorkspacePolicy(ctx context.Context, name string, jp model.JoinPolicy, bp model.BroadcastPolicy, now time.Time) (model.Workspace, error)
 
+	// SetWorkspaceBudget updates a room's daily byte budgets for agent
+	// traffic (0 = unlimited), bumping updated_at. Returns ErrNotFound for
+	// an unknown room. Budgets bound AGENT coordination bytes
+	// (ingress+egress); humans are exempt by design.
+	SetWorkspaceBudget(ctx context.Context, name string, dailyBytes, memberDailyBytes int64, now time.Time) (model.Workspace, error)
+
 	// CreateInvite persists an invite record (hash only; the caller keeps the
 	// plaintext code). ID and CodeHash must be unique.
 	CreateInvite(ctx context.Context, inv model.Invite) (model.Invite, error)

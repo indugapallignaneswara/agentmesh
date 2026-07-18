@@ -11,7 +11,7 @@ import (
 )
 
 const workspaceSelect = `
-	SELECT name, status, created_by, created_at, updated_at, closed_by, closed_at, join_policy, who_may_broadcast
+	SELECT name, status, created_by, created_at, updated_at, closed_by, closed_at, join_policy, who_may_broadcast, budget_daily_bytes, budget_member_daily_bytes
 	FROM workspaces`
 
 func (s *Postgres) CreateWorkspace(ctx context.Context, w model.Workspace) (model.Workspace, error) {
@@ -96,11 +96,30 @@ func (s *Postgres) SetWorkspaceStatus(ctx context.Context, name string, status m
 	return s.GetWorkspace(ctx, name)
 }
 
+// SetWorkspaceBudget updates a room's daily agent-byte budgets (0 = unlimited),
+// bumping updated_at. Mirrors SetWorkspacePolicy: update-then-reread so the
+// returned row is authoritative.
+func (s *Postgres) SetWorkspaceBudget(ctx context.Context, name string, dailyBytes, memberDailyBytes int64, now time.Time) (model.Workspace, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE workspaces
+		SET budget_daily_bytes = $2, budget_member_daily_bytes = $3, updated_at = $4
+		WHERE name = $1`,
+		name, dailyBytes, memberDailyBytes, now)
+	if err != nil {
+		return model.Workspace{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return model.Workspace{}, ErrNotFound
+	}
+	return s.GetWorkspace(ctx, name)
+}
+
 func scanWorkspace(row pgx.Row) (model.Workspace, error) {
 	var w model.Workspace
 	var status, joinPolicy, broadcast string
 	if err := row.Scan(&w.Name, &status, &w.CreatedBy, &w.CreatedAt, &w.UpdatedAt,
-		&w.ClosedBy, &w.ClosedAt, &joinPolicy, &broadcast); err != nil {
+		&w.ClosedBy, &w.ClosedAt, &joinPolicy, &broadcast,
+		&w.BudgetDailyBytes, &w.BudgetMemberDailyBytes); err != nil {
 		return model.Workspace{}, err
 	}
 	w.Status = model.WorkspaceStatus(status)

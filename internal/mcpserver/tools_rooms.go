@@ -33,6 +33,11 @@ func registerRoomTools(s *mcp.Server, svc *workspace.Service) {
 		Name:        "room_list",
 		Description: "List rooms on this server, optionally filtered by status (open, closed).",
 	}, roomListHandler(svc))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "room_set_budget",
+		Description: "Set the room's daily coordination-byte budgets for agents (0 = unlimited). Soft warning at 80%, hard retryable refusal at 100%; humans are never blocked.",
+	}, roomSetBudgetHandler(svc))
 }
 
 type roomCreateArgs struct {
@@ -47,6 +52,13 @@ type roomModArgs struct {
 
 type roomListArgs struct {
 	Statuses []string `json:"statuses,omitempty" jsonschema:"optional status filter: open, closed"`
+}
+
+type roomSetBudgetArgs struct {
+	Workspace        string `json:"workspace" jsonschema:"the room (workspace) name"`
+	Actor            string `json:"actor" jsonschema:"the human moderator setting the budgets"`
+	DailyBytes       int64  `json:"daily_bytes" jsonschema:"room-wide daily byte budget for agent traffic (0 = unlimited)"`
+	MemberDailyBytes int64  `json:"member_daily_bytes" jsonschema:"per-agent daily byte cap (0 = unlimited)"`
 }
 
 type roomListResult struct {
@@ -95,6 +107,16 @@ func roomListHandler(svc *workspace.Service) func(context.Context, *mcp.CallTool
 			return failRoom[roomListResult](err)
 		}
 		return ok(roomListResult{Rooms: rooms, Count: len(rooms)})
+	}
+}
+
+func roomSetBudgetHandler(svc *workspace.Service) func(context.Context, *mcp.CallToolRequest, roomSetBudgetArgs) (*mcp.CallToolResult, model.Workspace, error) {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, a roomSetBudgetArgs) (*mcp.CallToolResult, model.Workspace, error) {
+		w, err := svc.RoomSetBudget(ctx, a.Workspace, a.Actor, a.DailyBytes, a.MemberDailyBytes)
+		if err != nil {
+			return failRoom[model.Workspace](err)
+		}
+		return ok(w)
 	}
 }
 

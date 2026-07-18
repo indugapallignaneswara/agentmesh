@@ -61,6 +61,17 @@ type Workspace struct {
 	ClosedAt        *time.Time      `json:"closed_at,omitempty"`
 	JoinPolicy      JoinPolicy      `json:"join_policy,omitempty"`
 	WhoMayBroadcast BroadcastPolicy `json:"who_may_broadcast,omitempty"`
+
+	// BudgetDailyBytes is the room-wide DAILY byte budget for agent traffic
+	// (0 = unlimited). Budgets bound AGENT coordination bytes (ingress+egress);
+	// humans are exempt by design — a runaway agent must never silence the
+	// humans who would stop it.
+	BudgetDailyBytes int64 `json:"budget_daily_bytes"`
+	// BudgetMemberDailyBytes is the per-agent daily byte cap (0 = unlimited).
+	// Budgets bound AGENT coordination bytes (ingress+egress); humans are
+	// exempt by design — a runaway agent must never silence the humans who
+	// would stop it.
+	BudgetMemberDailyBytes int64 `json:"budget_member_daily_bytes"`
 }
 
 // Kind distinguishes the two principal types that participate in a workspace.

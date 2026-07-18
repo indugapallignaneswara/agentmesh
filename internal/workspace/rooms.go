@@ -74,6 +74,41 @@ func (s *Service) setRoomStatus(ctx context.Context, name, actor string, status 
 	return w, nil
 }
 
+// EventRoomBudgetSet is appended when a room's byte budgets change. It lives
+// here rather than in service.go's event block because the budget track owns
+// only this file (M8; docs/token-metering.md §7).
+const EventRoomBudgetSet = "room_budget_set"
+
+// RoomSetBudget sets the room's daily coordination-byte budgets for agent
+// traffic (moderator only, mirroring RoomSetPolicy). Zero means unlimited.
+// Budgets bound AGENT bytes (ingress+egress); humans are exempt by design —
+// a runaway agent must never silence the humans who would stop it.
+func (s *Service) RoomSetBudget(ctx context.Context, name, actor string, dailyBytes, memberDailyBytes int64) (model.Workspace, error) {
+	if err := validName("workspace", name); err != nil {
+		return model.Workspace{}, err
+	}
+	if _, err := s.requireModerator(ctx, name, actor); err != nil {
+		return model.Workspace{}, err
+	}
+	if dailyBytes < 0 {
+		return model.Workspace{}, fmt.Errorf("%w: daily_bytes must be >= 0 (0 = unlimited)", ErrInvalidInput)
+	}
+	if memberDailyBytes < 0 {
+		return model.Workspace{}, fmt.Errorf("%w: member_daily_bytes must be >= 0 (0 = unlimited)", ErrInvalidInput)
+	}
+	w, err := s.store.SetWorkspaceBudget(ctx, name, dailyBytes, memberDailyBytes, s.now())
+	if err != nil {
+		return model.Workspace{}, err
+	}
+	// Drop the enforcement tracker's cached policy so the new budget takes
+	// effect on the very next call, not after the policy TTL.
+	s.BudgetInvalidate(name)
+	s.appendEvent(ctx, name, actor, EventRoomBudgetSet, map[string]any{
+		"daily_bytes": dailyBytes, "member_daily_bytes": memberDailyBytes, "by": actor,
+	})
+	return w, nil
+}
+
 // RoomList returns rooms, optionally filtered by status. Listing is a
 // read/discovery action available to any authenticated caller.
 func (s *Service) RoomList(ctx context.Context, statuses []model.WorkspaceStatus) ([]model.Workspace, error) {

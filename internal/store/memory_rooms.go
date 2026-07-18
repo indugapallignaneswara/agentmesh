@@ -89,3 +89,19 @@ func (s *Memory) SetWorkspaceStatus(_ context.Context, name string, status model
 	s.rooms[name] = w
 	return w, nil
 }
+
+// SetWorkspaceBudget updates a room's daily agent-byte budgets (0 = unlimited),
+// bumping updated_at.
+func (s *Memory) SetWorkspaceBudget(_ context.Context, name string, dailyBytes, memberDailyBytes int64, now time.Time) (model.Workspace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.rooms[name]
+	if !ok {
+		return model.Workspace{}, ErrNotFound
+	}
+	w.BudgetDailyBytes = dailyBytes
+	w.BudgetMemberDailyBytes = memberDailyBytes
+	w.UpdatedAt = now
+	s.rooms[name] = w
+	return w, nil
+}
