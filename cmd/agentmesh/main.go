@@ -24,6 +24,7 @@ import (
 	"github.com/indugapallignaneswara/agentmesh/internal/mcpserver"
 	"github.com/indugapallignaneswara/agentmesh/internal/metrics"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
+	"github.com/indugapallignaneswara/agentmesh/internal/usage"
 	"github.com/indugapallignaneswara/agentmesh/internal/workspace"
 )
 
@@ -99,10 +100,23 @@ func run() error {
 		workspace.WithAckVisibility(cfg.AckVisibility),
 		workspace.WithImplicitRooms(cfg.ImplicitWorkspaces),
 		rateLimitOption(cfg.RateLimit),
+		workspace.WithUsageBytesPerToken(cfg.UsageBytesPerToken),
 		workspace.WithLogger(logger),
 	)
 
 	reg := metrics.New()
+
+	// Usage metering (M6): measure-only, async, best-effort. Record never
+	// blocks a tool call; drops are counted, never silent. Off = a true no-op
+	// (no middleware installed at all).
+	var rec *usage.Recorder
+	if cfg.Usage {
+		rec = usage.NewRecorder(st, usage.Options{
+			OnDrop: reg.AddUsageDropped,
+			Logger: logger,
+		})
+		defer rec.Close()
+	}
 
 	mux := http.NewServeMux()
 	// Liveness: the process is up. Readiness: it can actually serve — the
@@ -122,7 +136,7 @@ func run() error {
 		_, _ = w.Write([]byte("ready"))
 	})
 	mux.Handle("GET /metrics", reg.Handler())
-	mux.Handle("/mcp", mcpserver.HandlerWithMetrics(svc, version, reg))
+	mux.Handle("/mcp", mcpserver.HandlerWithObservability(svc, version, reg, rec))
 	mux.Handle("/ui", dashboard.Handler(svc))
 	mux.Handle("/ui/", dashboard.Handler(svc))
 	mux.Handle(discovery.WellKnownPath, discovery.Handler(version, cfg.Auth))

@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -45,6 +46,14 @@ type Config struct {
 	// publish_event with production defaults. Off by default so existing
 	// deployments and the demo are unaffected.
 	RateLimit bool
+	// Usage enables the metering middleware and usage ledger (M6). On by
+	// default — it is measure-only and adds no hot-path store writes; set
+	// AGENTMESH_USAGE=off to disable entirely (a true no-op).
+	Usage bool
+	// UsageBytesPerToken is the display-time bytes→estimated-tokens ratio.
+	// Bytes are the stored ground truth; this only affects presentation, so
+	// recalibrating re-renders history (docs/token-metering.md §3).
+	UsageBytesPerToken float64
 	// TLSCert and TLSKey enable native HTTPS when both are set. Serving TLS
 	// directly is the simplest safe path; terminating at a reverse proxy is
 	// equally supported (leave these empty).
@@ -70,6 +79,8 @@ func Load() (Config, error) {
 		TaskLease:          5 * time.Minute,
 		AckVisibility:      60 * time.Second,
 		RateLimit:          envBool("AGENTMESH_RATE_LIMIT", false),
+		Usage:              envBool("AGENTMESH_USAGE", true),
+		UsageBytesPerToken: envFloat("AGENTMESH_USAGE_BYTES_PER_TOKEN", 4.0),
 		TLSCert:            env("AGENTMESH_TLS_CERT", ""),
 		TLSKey:             env("AGENTMESH_TLS_KEY", ""),
 		OAuthIssuer:        env("AGENTMESH_OAUTH_ISSUER", ""),
@@ -143,4 +154,18 @@ func envBool(key string, def bool) bool {
 	default:
 		return true
 	}
+}
+
+// envFloat reads a positive float env var; unset, unparsable or non-positive
+// values yield def.
+func envFloat(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 {
+		return def
+	}
+	return f
 }

@@ -95,6 +95,7 @@ type Service struct {
 	taskLease     time.Duration
 	ackVisibility time.Duration // lease window for ack-mode inbox reads
 	implicitRoom  bool          // auto-create a room on first join (back-compat / demo mode)
+	usageRatio    float64       // display-time bytes->estimated-tokens ratio
 	rl            *limiter      // per-principal rate limits (disabled by default)
 	log           *slog.Logger
 }
@@ -129,6 +130,17 @@ func WithRateLimits(rl RateLimits) Option {
 	return func(s *Service) { s.rl = newLimiter(rl, func() time.Time { return s.now() }) }
 }
 
+// WithUsageBytesPerToken sets the display-time bytes->tokens ratio used by
+// UsageStatsWindow. Bytes are the stored ground truth; this only shapes
+// presentation, so changing it re-renders history.
+func WithUsageBytesPerToken(f float64) Option {
+	return func(s *Service) {
+		if f > 0 {
+			s.usageRatio = f
+		}
+	}
+}
+
 // WithImplicitRooms controls whether joining a non-existent room auto-creates
 // it (open). True preserves the pre-v0.2 behaviour and keeps the zero-setup
 // demo working; false means rooms must be created explicitly with RoomCreate.
@@ -145,6 +157,7 @@ func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 		taskLease:     defaultTaskLease,
 		ackVisibility: defaultAckVisibility,
 		implicitRoom:  true, // default preserves pre-v0.2 behaviour
+		usageRatio:    4.0,  // ~4 bytes/token; AGENTMESH_USAGE_BYTES_PER_TOKEN overrides
 		log:           slog.Default(),
 	}
 	for _, o := range opts {

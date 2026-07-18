@@ -32,6 +32,15 @@ type Registry struct {
 	// http request counters keyed by "path status".
 	httpReqs map[string]uint64
 
+	// usage byte counters keyed by "workspace\x00tool\x00direction". Workspace
+	// cardinality is capped (see usageWorkspaceCap): beyond the cap, new
+	// workspaces aggregate under "_other" — same bounded-cardinality
+	// discipline as normalisePath. Exact per-member accounting lives in the
+	// usage ledger, not here.
+	usageBytes   map[string]uint64
+	usageWs      map[string]bool // workspaces currently tracked distinctly
+	usageDropped uint64          // ledger events dropped (buffer overflow / flush failure)
+
 	startedAt time.Time
 	// gauges are sampled at scrape time by the collector func, if set.
 	gauges func() map[string]float64
@@ -45,6 +54,8 @@ func New() *Registry {
 		toolHist:   make(map[string][]uint64),
 		toolSum:    make(map[string]float64),
 		httpReqs:   make(map[string]uint64),
+		usageBytes: make(map[string]uint64),
+		usageWs:    make(map[string]bool),
 		startedAt:  time.Now(),
 	}
 }
@@ -86,6 +97,40 @@ func (r *Registry) ObserveHTTP(path string, status int) {
 	r.httpReqs[path+" "+strconv.Itoa(status)]++
 }
 
+// usageWorkspaceCap bounds the number of workspaces given distinct label
+// values in usage counters; the rest fold into "_other".
+const usageWorkspaceCap = 100
+
+// ObserveUsage adds metered bytes for one tool call side. Synchronous and
+// in-memory (a mutex around a map — nanoseconds), so aggregate counters stay
+// accurate even when the async ledger drops rows.
+func (r *Registry) ObserveUsage(workspace, tool, direction string, bytes int64) {
+	if bytes < 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.usageWs[workspace] {
+		if len(r.usageWs) >= usageWorkspaceCap {
+			workspace = "_other"
+		} else {
+			r.usageWs[workspace] = true
+		}
+	}
+	r.usageBytes[workspace+"\x00"+tool+"\x00"+direction] += uint64(bytes)
+}
+
+// AddUsageDropped counts usage-ledger events that were dropped (buffer
+// overflow or flush failure) — the honesty counter for best-effort metering.
+func (r *Registry) AddUsageDropped(n int) {
+	if n <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.usageDropped += uint64(n)
+}
+
 // Handler serves the metrics in Prometheus text format.
 func (r *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -109,6 +154,8 @@ func (r *Registry) render() string {
 		sums[k] = v
 	}
 	reqs := copyU64(r.httpReqs)
+	usage := copyU64(r.usageBytes)
+	usageDropped := r.usageDropped
 	uptime := time.Since(r.startedAt).Seconds()
 	r.mu.Unlock()
 
@@ -146,6 +193,20 @@ func (r *Registry) render() string {
 		path, status, _ := strings.Cut(k, " ")
 		fmt.Fprintf(&b, "agentmesh_http_requests_total{path=%q,status=%q} %d\n", path, status, reqs[k])
 	}
+
+	fmt.Fprintf(&b, "# HELP agentmesh_usage_bytes_total Metered coordination bytes by workspace, tool and direction.\n")
+	fmt.Fprintf(&b, "# TYPE agentmesh_usage_bytes_total counter\n")
+	for _, k := range sortedKeys(usage) {
+		parts := strings.SplitN(k, "\x00", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		fmt.Fprintf(&b, "agentmesh_usage_bytes_total{workspace=%q,tool=%q,direction=%q} %d\n",
+			parts[0], parts[1], parts[2], usage[k])
+	}
+	fmt.Fprintf(&b, "# HELP agentmesh_usage_events_dropped_total Usage-ledger events dropped (buffer overflow or flush failure).\n")
+	fmt.Fprintf(&b, "# TYPE agentmesh_usage_events_dropped_total counter\n")
+	fmt.Fprintf(&b, "agentmesh_usage_events_dropped_total %d\n", usageDropped)
 
 	if gaugeFn != nil {
 		g := gaugeFn()

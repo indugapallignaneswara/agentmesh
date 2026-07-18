@@ -122,6 +122,8 @@ dispatch:
 		return cmdLeave(ctx, cl, out, rest)
 	case "history":
 		return cmdHistory(ctx, cl, out, rest)
+	case "usage":
+		return cmdUsage(ctx, cl, out, rest)
 	default:
 		usage()
 		return fmt.Errorf("unknown command %q", cmd)
@@ -163,6 +165,7 @@ Commands:
   mod        Moderation (human moderators): mod kick|ban|unban|bans|role
   leave      Leave the room (self-service departure)
   history    Review the room's message log (human-only, non-consuming)
+  usage      Per-member coordination usage for the room (bytes in/out, est tokens)
 
 Global flags:
   --endpoint URL   MCP endpoint (env AGENTMESH_ENDPOINT, default `+defaultEndpoint+`)

@@ -87,6 +87,7 @@ func registerTools(s *mcp.Server, svc *workspace.Service) {
 	registerModerationTools(s, svc)
 	registerInviteTools(s, svc)
 	registerAckTools(s, svc)
+	registerUsageTools(s, svc)
 }
 
 // --- tool argument and result types ---
@@ -203,6 +204,9 @@ func sendMessageHandler(svc *workspace.Service) func(context.Context, *mcp.CallT
 		if err != nil {
 			return fail[model.Message](err)
 		}
+		// Same body-echo economy as broadcast: the sender keeps the metadata
+		// (id, recipient, timestamp), not a copy of what they just wrote.
+		msg.Body = ""
 		return ok(msg)
 	}
 }
@@ -227,6 +231,11 @@ func broadcastHandler(svc *workspace.Service) func(context.Context, *mcp.CallToo
 		if err != nil {
 			return fail[broadcastResult](err)
 		}
+		// Don't echo the body back: the sender already has it, and the echo
+		// lands in their context window as pure waste (metering made this
+		// visible — a 4 KB broadcast cost its sender ~8 KB of ack). The ack
+		// carries the metadata a sender can act on: id, recipients, timestamp.
+		msg.Body = ""
 		return ok(broadcastResult{Message: msg, Recipients: recipients})
 	}
 }
