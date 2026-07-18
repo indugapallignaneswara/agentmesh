@@ -47,7 +47,7 @@ top so a shared space stays under human control.
    MCP clients (Claude Code / Codex / Cursor)   humans (dashboard / coord CLI)
                               │  Streamable HTTP + OAuth/token
                     ┌─────────▼──────────┐
-                    │  transport layer   │  36 MCP tools · /ui · /metrics · A2A card
+                    │  transport layer   │  37 MCP tools · /ui · /metrics · A2A card
                     ├────────────────────┤
                     │  workspace service │  rooms · messaging · tasks · memory ·
                     │  (transport-agnostic) │  artifacts · moderation · authz · events
@@ -108,6 +108,7 @@ trade-off.
 | `message_history` | Human-only, non-consuming review of the room's conversation (also a dashboard panel) |
 | `room_invite_create` / `room_invite_revoke` / `room_invites` | Hashed invite codes (shown once) with max-uses/TTL; `workspace_join` takes `invite_code` |
 | `room_set_policy` | Per-room `join_policy: open\|invite` and `who_may_broadcast: anyone\|moderators` |
+| `usage_stats` | Per-member coordination usage over a window — bytes written in (ingress) and returned into each member's context (egress), with estimated tokens; broadcast fan-out is metered at read time (`coord usage` prints the same view) |
 
 Identifiers (workspace and member names) must match
 `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — they double as NATS subject tokens, so

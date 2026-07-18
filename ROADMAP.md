@@ -10,7 +10,7 @@
 **Where we are (v0.1-alpha):** phases 0–4 of the original blueprint are built
 and CI-enforced — core loop, task board (SKIP-LOCKED + leases + retry),
 review-gated shared memory, co-edited artifacts, dashboard, bearer-token auth
-with per-principal enforcement, A2A discovery card. 36 MCP tools, `coord` CLI,
+with per-principal enforcement, A2A discovery card. 37 MCP tools, `coord` CLI,
 cross-engine contract suite, black-box QA and a verified code audit behind us.
 
 What separates this from production is not more features — it is **the room
@@ -126,7 +126,17 @@ room they moderate, on their own hardware, in under ten minutes.
 > release later. "Usage metering built in" is a launch differentiator no
 > gateway or tracer can match.
 
-## M6 — «Meter» *(measure-only; ships in v1.0)*
+## M6 — «Meter» *(measure-only; ships in v1.0)* ✅ COMPLETE
+
+**Exit criteria verified live:** a 4 KB broadcast into a 3-agent room showed
+the writer paying ~4.1 KB ingress once and each reader paying ~9 KB egress
+only after draining its inbox (`coord usage`); the adversarial test asserts
+readers show no payload egress before reading and ≥3× after; the recorder's
+drop test proves Record never blocks with a full buffer and accounting stays
+exact (delivered + dropped == sent); the ledger contract suite passes on both
+engines. Bonus finding: metering exposed that send/broadcast echoed the full
+body back to the sender (~2× waste via the dual encoding) — the echo now
+returns metadata only.
 
 1. **Metering middleware** — a second `mcp.Middleware` beside `toolMetrics()`:
    ingress = `len(Params.Arguments)` (already raw bytes, free); egress = one
