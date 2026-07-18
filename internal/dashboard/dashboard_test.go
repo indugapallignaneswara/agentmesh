@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/indugapallignaneswara/agentmesh/internal/bus"
 	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
@@ -18,7 +19,8 @@ import (
 
 func TestDashboard(t *testing.T) {
 	ctx := context.Background()
-	svc := workspace.New(store.NewMemory(), bus.NewNoop())
+	st := store.NewMemory()
+	svc := workspace.New(st, bus.NewNoop())
 	srv := httptest.NewServer(dashboard.Handler(svc))
 	t.Cleanup(srv.Close)
 
@@ -36,6 +38,18 @@ func TestDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := svc.ArtifactPut(ctx, "team", "alice", "notes", "hello", 0); err != nil {
+		t.Fatal(err)
+	}
+	// The dashboard's usage panel reads the LEDGER via UsageStatsWindow, so
+	// seed rows directly: measured bytes for backend plus a reported claim.
+	now := time.Now().UTC()
+	if err := st.AppendUsage(ctx, []model.UsageEvent{
+		{TS: now, Workspace: "team", Member: "backend", Kind: model.KindAgent,
+			Tool: "send_message", Direction: model.UsageIngress, Bytes: 4000},
+		{TS: now, Workspace: "team", Member: "backend", Kind: model.KindAgent,
+			Tool: "usage_report", Direction: model.UsageReported,
+			ReportedPromptTokens: 1234, ReportedCompletionTokens: 56},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,6 +83,16 @@ func TestDashboard(t *testing.T) {
 		Cursor      int64                      `json:"cursor"`
 		MemoryQueue []struct{ Content string } `json:"memory_queue"`
 		Artifacts   []struct{ Name string }    `json:"artifacts"`
+		Usage       struct {
+			Members []struct {
+				Member                   string `json:"member"`
+				Kind                     string `json:"kind"`
+				IngressBytes             int64  `json:"ingress_bytes"`
+				EstTokens                int64  `json:"est_tokens"`
+				ReportedPromptTokens     int64  `json:"reported_prompt_tokens"`
+				ReportedCompletionTokens int64  `json:"reported_completion_tokens"`
+			} `json:"members"`
+		} `json:"usage"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&ov); err != nil {
 		t.Fatal(err)
@@ -78,6 +102,21 @@ func TestDashboard(t *testing.T) {
 	}
 	if ov.Cursor == 0 || len(ov.Events) == 0 {
 		t.Fatalf("events empty: cursor=%d n=%d", ov.Cursor, len(ov.Events))
+	}
+	// The usage panel: measured bytes with a display-time estimate AND the
+	// reported (client-claimed) tokens, side by side on the same member row.
+	if len(ov.Usage.Members) != 1 {
+		t.Fatalf("usage members = %+v, want exactly the seeded backend row", ov.Usage.Members)
+	}
+	um := ov.Usage.Members[0]
+	if um.Member != "backend" || um.Kind != "agent" {
+		t.Fatalf("usage row = %+v, want member backend kind agent", um)
+	}
+	if um.IngressBytes != 4000 || um.EstTokens <= 0 {
+		t.Fatalf("usage row bytes/est = %d/%d, want 4000 measured bytes and a positive estimate", um.IngressBytes, um.EstTokens)
+	}
+	if um.ReportedPromptTokens != 1234 || um.ReportedCompletionTokens != 56 {
+		t.Fatalf("usage row reported = %d/%d, want 1234/56", um.ReportedPromptTokens, um.ReportedCompletionTokens)
 	}
 
 	// Cursor paging: polling again from the cursor returns nothing new.

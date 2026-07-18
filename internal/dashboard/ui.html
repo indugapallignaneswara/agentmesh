@@ -54,6 +54,10 @@
   <section><h2>Task board</h2><ul id="tasks"></ul></section>
   <section><h2>Memory review queue</h2><ul id="queue"></ul></section>
   <section><h2>Artifacts</h2><ul id="artifacts"></ul></section>
+  <section>
+    <h2>Usage (24h)</h2><ul id="usage"></ul>
+    <div class="muted" style="margin-top:8px;font-size:11px">bytes measured &middot; tokens estimated &middot; reported = client-claimed</div>
+  </section>
 </main>
 <script>
 "use strict";
@@ -70,6 +74,13 @@ $("tok").addEventListener("change", () => {
   localStorage.setItem("agentmesh_token", $("tok").value.trim());
   cursor = 0; eventLog = [];
 });
+
+function fmtBytes(n) {
+  n = n || 0;
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + "MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + "KB";
+  return n + "B";
+}
 
 function render(list, items, fmt) {
   $(list).innerHTML = items && items.length
@@ -130,6 +141,19 @@ async function tick() {
 
     render("artifacts", d.artifacts, a =>
       `<li>${esc(a.name)} <span class="muted">v${a.version} by ${esc(a.updated_by)}</span></li>`);
+
+    // Usage panel: bytes are platform-measured, tokens are display-time
+    // ESTIMATES, and "reported" numbers are unverified client claims — the
+    // three must stay visually distinct.
+    render("usage", d.usage && d.usage.members, u => {
+      const rp = u.reported_prompt_tokens || 0, rc = u.reported_completion_tokens || 0;
+      const rep = rp + rc > 0
+        ? ` <span class="tag pending">reported: ${rp} in / ${rc} out</span>` : "";
+      return `<li><span class="tag ${esc(u.kind || 'agent')}">${esc(u.kind || '?')}</span>` +
+        `<b>${esc(u.member || '(unattributed)')}</b> ` +
+        `<span class="muted">in ${fmtBytes(u.ingress_bytes)} / out ${fmtBytes(u.egress_bytes)}</span>` +
+        ` ~${u.est_tokens || 0} est tokens${rep}</li>`;
+    });
   } catch (err) {
     $("dot").className = "dot";
     $("status").textContent = String(err).slice(0, 120);

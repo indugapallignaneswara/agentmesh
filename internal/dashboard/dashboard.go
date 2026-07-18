@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/indugapallignaneswara/agentmesh/internal/auth"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
@@ -31,6 +32,11 @@ type overview struct {
 	MemoryQueue []model.Memory    `json:"memory_queue"`
 	Artifacts   []model.Artifact  `json:"artifacts"`
 	Messages    []model.Message   `json:"messages"`
+	// Usage is the trailing-24h burn panel: bytes measured, tokens estimated,
+	// reported tokens client-claimed (docs/token-metering.md §6). Zero-value
+	// when metering is off or the ledger read fails — the dashboard never
+	// breaks over usage.
+	Usage workspace.UsageStats `json:"usage"`
 }
 
 // normalize replaces nil slices with empty ones so every list field in the
@@ -56,6 +62,9 @@ func (o *overview) normalize() {
 	}
 	if o.Messages == nil {
 		o.Messages = []model.Message{}
+	}
+	if o.Usage.Members == nil {
+		o.Usage.Members = []workspace.UsageMemberStats{}
 	}
 }
 
@@ -117,6 +126,11 @@ func Handler(svc *workspace.Service) http.Handler {
 		if ov.Messages, err = svc.MessageHistoryPeek(ctx, ws, 50); err != nil {
 			httpErr(w, err)
 			return
+		}
+		// Usage is best-effort: on error the zero value renders as an empty
+		// panel rather than failing the whole overview (metering may be off).
+		if u, uerr := svc.UsageStatsWindow(ctx, ws, 24*time.Hour); uerr == nil {
+			ov.Usage = u
 		}
 
 		// Normalise nil slices to [] so the JSON payload always has array-typed
