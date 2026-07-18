@@ -161,7 +161,12 @@ egress *at read time, not send time*; a flood with a deliberately tiny buffer
 drops rows into the dropped counter while p99 tool latency stays within 5% of
 metering-off; the ledger contract suite passes on memory and Postgres.
 
-## M7 — v1.1 «Attribute» *(visibility)*
+## M7 — v1.1 «Attribute» *(visibility)* ✅ COMPLETE
+
+**Exit criteria verified:** the dashboard's Usage (24h) panel shows live burn
+per member; `usage_report` records client-claimed vendor tokens displayed
+side by side with estimates (always labelled "reported"); the ratio is
+display-time only, so recalibration re-renders history with no migration.
 
 1. **Dashboard usage panel** — per-room top talkers, bytes in/out, estimated
    tokens, daily trend (polls the same `/ui/api`).
@@ -178,7 +183,16 @@ metering-off; the ledger contract suite passes on memory and Postgres.
 estimated vs reported tokens display side by side for an agent whose hook
 reports; recalibrating the ratio re-renders history without a migration.
 
-## M8 — v1.2 «Budget» *(control — the safety story)*
+## M8 — v1.2 «Budget» *(control — the safety story)* ✅ COMPLETE
+
+**Exit criteria verified (adversarial tests + live):** a flooding agent was
+refused at send #13 of a 15 KB member budget while the human broadcast and
+kicked it mid-flood; the budget survives restart (the tracker is a cache —
+it seeds from the usage ledger on first touch); concurrent spends overshoot
+at most by the calls in flight (bounded, tested); the 80% warning event fires
+exactly once per room per day. The Agent-IAM budget claim flows end to end:
+`agentiam client register --budget-daily-bytes N` → `budget_daily_bytes` JWT
+claim → `Principal.BudgetDailyBytes` → enforced as a per-member cap.
 
 1. **Per-room / per-member budgets** — daily/monthly byte budgets enforced in
    the metering middleware, rhyming with `ratelimit.go`: soft warning event
