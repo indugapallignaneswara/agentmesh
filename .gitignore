@@ -28,3 +28,5 @@ IAM_JOURNAL.md
 
 # goreleaser output
 /dist/
+IAM_TEST_JOURNAL.md
+IAM_OPS_JOURNAL.md
