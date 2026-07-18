@@ -111,6 +111,95 @@ room they moderate, on their own hardware, in under ten minutes.
 
 ---
 
+# The metering track — M6→M8 «Measure → Attribute → Budget»
+
+> Design: [docs/token-metering.md](docs/token-metering.md) (accounting model,
+> ledger schema, verified P1 obstacles). Market case:
+> [docs/metering-go-to-market.md](docs/metering-go-to-market.md).
+>
+> The thesis: the mesh sits where attribution is natural — every tool call
+> carries a `Principal`, rooms are cost centers, and broadcast fan-out
+> (write once, read N times) is visible only at the coordination layer.
+> **Sequencing:** M6 lands *before* the v1.0 tag — it is measure-only (zero
+> behavior change), and the post-1.0 stability clock should start with
+> `usage_stats` already in the stable tool set rather than bolting it on a
+> release later. "Usage metering built in" is a launch differentiator no
+> gateway or tracer can match.
+
+## M6 — «Meter» *(measure-only; ships in v1.0)*
+
+1. **Metering middleware** — a second `mcp.Middleware` beside `toolMetrics()`:
+   ingress = `len(Params.Arguments)` (already raw bytes, free); egress = one
+   extra `json.Marshal` of the result. Attribution from `auth.Principal`;
+   auth-off falls back to arg-sniffing with rows marked `claimed`, not
+   `authenticated`. Wire bytes are what we meter (the `ok()` double-encoding
+   is documented, not hidden).
+2. **Usage ledger** — migration `0010_usage`: `usage_events` +
+   `usage_daily` rollup, in **both stores under the shared contract suite**.
+   Writes are async (buffered channel, batch flush, drop-on-overflow with a
+   dropped-rows counter) — the same best-effort posture as the NATS bus:
+   metering degrades, coordination never does.
+3. **Prometheus + query surface** — `agentmesh_usage_bytes_total`
+   {workspace,member,direction,tool} with the cardinality discipline of
+   `normalisePath`; a `usage_stats` MCP tool (any member reads their room's
+   burn) and `coord usage`.
+
+**Exit criteria (adversarial, per house rules):** two agents converse and
+`usage_stats` reports the sender's ingress and reader's egress equal to the
+actual payload bytes; a broadcast into a 3-member room shows exactly 3× reader
+egress *at read time, not send time*; a flood with a deliberately tiny buffer
+drops rows into the dropped counter while p99 tool latency stays within 5% of
+metering-off; the ledger contract suite passes on memory and Postgres.
+
+## M7 — v1.1 «Attribute» *(visibility)*
+
+1. **Dashboard usage panel** — per-room top talkers, bytes in/out, estimated
+   tokens, daily trend (polls the same `/ui/api`).
+2. **Reported vendor usage** — optional `usage` `_meta` field on any tool call
+   plus a `usage_report` tool for session hooks; stored in `reported_*`
+   columns, always displayed as *reported/unverified* — client claims, never a
+   billing source alone.
+3. **Calibration** — configurable bytes→token ratio; per-member calibration by
+   correlating measured egress with reported prompt tokens.
+4. **Hook recipes** — Claude Code / Codex session-hook snippets that post
+   per-turn vendor usage (`examples/`).
+
+**Exit criteria:** the dashboard shows live burn during the launch demo;
+estimated vs reported tokens display side by side for an agent whose hook
+reports; recalibrating the ratio re-renders history without a migration.
+
+## M8 — v1.2 «Budget» *(control — the safety story)*
+
+1. **Per-room / per-member budgets** — daily/monthly byte budgets enforced in
+   the metering middleware, rhyming with `ratelimit.go`: soft warning event
+   into the room's log at 80%, hard retryable `ErrBudgetExceeded` at 100%.
+   **Humans are exempt by default** — a runaway agent must never silence the
+   humans who would stop it (the rate-limit philosophy, kept).
+2. **`room_set_budget`** (moderator-gated, `room_set_policy` pattern) +
+   `coord budget`; budget state in both stores under the contract suite.
+3. **Agent-IAM budget claims** — an Agent-IAM token can carry a budget scope,
+   so identity and spend control converge (docs/agentiam.md phase 2).
+
+**Exit criteria:** a flooding agent is stopped by its budget mid-flood while a
+human moderator broadcasts and kicks it; the budget survives `kill -9` and
+restart; the adversarial race test shows concurrent spends cannot overshoot a
+budget by more than one flush batch (tolerance documented, not silent).
+
+## M9 — «Reconcile» *(the open-core boundary — commercial, not OSS-blocking)*
+
+Vendor invoice reconciliation (Anthropic/OpenAI usage-cost admin APIs),
+chargeback CSV exports, multi-room org rollups, org-level budgets across
+meshes. The line the comparables (Grafana/GitLab/Temporal) draw: measurement
+stays free; org-scale control and compliance are the paid tier. Decision
+deferred until there are users to charge.
+
+**Metering cross-cutting rules:** the ledger stores **sizes, never payload
+content** (a metering leak must not become a data leak — the self-hosted
+privacy story stays intact); metering must be a no-op when disabled; all
+schema changes stay additive (expand → migrate → contract).
+
+---
+
 ## Cross-cutting rules (already in force, kept through v1.0)
 
 - Every store feature lands in **both engines under the shared contract
