@@ -36,6 +36,10 @@ type Client struct {
 	AllowedScopes []string
 	// TokenTTL is how long issued tokens live. Zero means use the server default.
 	TokenTTL time.Duration
+	// BudgetDailyBytes, when > 0, is stamped into every issued token as the
+	// budget_daily_bytes claim: a per-principal daily coordination-byte cap the
+	// resource server enforces. Identity and spend control in one credential.
+	BudgetDailyBytes int64
 	// Disabled clients are refused at the token endpoint without being deleted
 	// (immediate, reversible revocation).
 	Disabled  bool

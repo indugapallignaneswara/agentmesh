@@ -38,6 +38,10 @@ type Principal struct {
 	Workspace string
 	Member    string
 	Kind      model.Kind
+	// BudgetDailyBytes is an optional per-principal daily coordination-byte
+	// cap carried by the credential itself (the Agent-IAM budget claim).
+	// 0 means the credential imposes no cap; room budgets still apply.
+	BudgetDailyBytes int64
 }
 
 // Authenticator validates a presented secret and returns its principal.

@@ -93,10 +93,11 @@ type Service struct {
 	newID         func() string
 	presenceTTL   time.Duration
 	taskLease     time.Duration
-	ackVisibility time.Duration // lease window for ack-mode inbox reads
-	implicitRoom  bool          // auto-create a room on first join (back-compat / demo mode)
-	usageRatio    float64       // display-time bytes->estimated-tokens ratio
-	rl            *limiter      // per-principal rate limits (disabled by default)
+	ackVisibility time.Duration  // lease window for ack-mode inbox reads
+	implicitRoom  bool           // auto-create a room on first join (back-compat / demo mode)
+	usageRatio    float64        // display-time bytes->estimated-tokens ratio
+	budget        *budgetTracker // per-day agent spend cache for budget enforcement
+	rl            *limiter       // per-principal rate limits (disabled by default)
 	log           *slog.Logger
 }
 
@@ -158,6 +159,7 @@ func New(st store.Store, b bus.Bus, opts ...Option) *Service {
 		ackVisibility: defaultAckVisibility,
 		implicitRoom:  true, // default preserves pre-v0.2 behaviour
 		usageRatio:    4.0,  // ~4 bytes/token; AGENTMESH_USAGE_BYTES_PER_TOKEN overrides
+		budget:        newBudgetTracker(),
 		log:           slog.Default(),
 	}
 	for _, o := range opts {

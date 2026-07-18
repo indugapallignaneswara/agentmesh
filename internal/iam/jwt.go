@@ -22,10 +22,13 @@ type Claims struct {
 	Workspace string `json:"workspace"` // → Principal.Workspace
 	Kind      string `json:"kind"`      // → Principal.Kind (agent/human)
 	Scope     string `json:"scope,omitempty"`
-	IssuedAt  int64  `json:"iat"`
-	NotBefore int64  `json:"nbf"`
-	Expiry    int64  `json:"exp"`
-	JTI       string `json:"jti"`
+	// BudgetDailyBytes is the Agent-IAM budget claim: a per-principal daily
+	// coordination-byte cap the resource server enforces (0 = omitted).
+	BudgetDailyBytes int64  `json:"budget_daily_bytes,omitempty"`
+	IssuedAt         int64  `json:"iat"`
+	NotBefore        int64  `json:"nbf"`
+	Expiry           int64  `json:"exp"`
+	JTI              string `json:"jti"`
 }
 
 // jwtHeader is the JOSE header. typ "at+jwt" (RFC 9068) marks this an OAuth 2.0

@@ -23,7 +23,7 @@ import (
 func NewServerWithObservability(svc *workspace.Service, version string, reg *metrics.Registry, rec *usage.Recorder) *mcp.Server {
 	s := NewServerWithMetrics(svc, version, reg)
 	if rec != nil {
-		s.AddReceivingMiddleware(meterUsage(rec, reg))
+		s.AddReceivingMiddleware(meterUsage(svc, rec, reg))
 	}
 	return s
 }
@@ -43,15 +43,13 @@ func HandlerWithObservability(svc *workspace.Service, version string, reg *metri
 // what actually enters the caller's context, including the ok() helper's
 // text+structured double encoding (documented in docs/token-metering.md §9,
 // deliberately not hidden).
-func meterUsage(rec *usage.Recorder, reg *metrics.Registry) mcp.Middleware {
+func meterUsage(svc *workspace.Service, rec *usage.Recorder, reg *metrics.Registry) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			call, ok := req.(*mcp.CallToolRequest)
 			if !ok || method != "tools/call" {
 				return next(ctx, method, req)
 			}
-			res, err := next(ctx, method, req)
-
 			tool := "unknown"
 			var raw json.RawMessage
 			if call.Params != nil {
@@ -59,6 +57,18 @@ func meterUsage(rec *usage.Recorder, reg *metrics.Registry) mcp.Middleware {
 				raw = call.Params.Arguments
 			}
 			ws, member, kind, authed := attributeCall(ctx, raw)
+
+			// Budget gate (M8): an over-budget AGENT is refused before the
+			// tool runs — retryable tomorrow. Humans are never blocked, so a
+			// moderator can always broadcast and kick mid-flood.
+			if err := svc.BudgetCheck(ctx, ws, member); err != nil {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+				}, nil
+			}
+
+			res, err := next(ctx, method, req)
 			now := time.Now().UTC()
 
 			ingress := int64(len(raw))
@@ -74,9 +84,10 @@ func meterUsage(rec *usage.Recorder, reg *metrics.Registry) mcp.Middleware {
 			// Egress only for a delivered result; a protocol error returned
 			// nothing into the caller's context. Tool-level errors (IsError)
 			// ARE metered — their text still lands in the caller's context.
+			var egress int64
 			if ctr, isCall := res.(*mcp.CallToolResult); isCall && ctr != nil && err == nil {
 				if out, mErr := json.Marshal(ctr); mErr == nil {
-					egress := int64(len(out))
+					egress = int64(len(out))
 					rec.Record(model.UsageEvent{
 						TS: now, Workspace: ws, Member: member, Kind: kind,
 						Tool: tool, Direction: model.UsageEgress,
@@ -87,6 +98,10 @@ func meterUsage(rec *usage.Recorder, reg *metrics.Registry) mcp.Middleware {
 					}
 				}
 			}
+			// Charge the spend synchronously so concurrent callers cannot
+			// slip past a nearly-exhausted budget by more than the calls
+			// already in flight (the documented overshoot bound).
+			svc.BudgetSpend(ctx, ws, member, ingress+egress)
 			return res, err
 		}
 	}

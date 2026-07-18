@@ -149,16 +149,17 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		kind = "agent"
 	}
 	claims := Claims{
-		Issuer:    s.cfg.Issuer,
-		Subject:   c.Subject,
-		Audience:  resource,
-		Workspace: c.Workspace,
-		Kind:      kind,
-		Scope:     strings.Join(scopes, " "),
-		IssuedAt:  now.Unix(),
-		NotBefore: now.Unix(),
-		Expiry:    now.Add(ttl).Unix(),
-		JTI:       jti,
+		Issuer:           s.cfg.Issuer,
+		Subject:          c.Subject,
+		Audience:         resource,
+		Workspace:        c.Workspace,
+		Kind:             kind,
+		Scope:            strings.Join(scopes, " "),
+		BudgetDailyBytes: c.BudgetDailyBytes,
+		IssuedAt:         now.Unix(),
+		NotBefore:        now.Unix(),
+		Expiry:           now.Add(ttl).Unix(),
+		JTI:              jti,
 	}
 	token, err := s.keys.Sign(claims)
 	if err != nil {

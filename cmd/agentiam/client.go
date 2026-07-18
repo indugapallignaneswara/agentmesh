@@ -47,6 +47,7 @@ func clientRegister(ctx context.Context, store iam.Store, args []string) error {
 	kind := fs.String("kind", "agent", "member kind: agent or human")
 	scopes := fs.String("scopes", "", "comma/space separated allowed scopes")
 	ttl := fs.Duration("ttl", 0, "access-token lifetime (0 = server default)")
+	budget := fs.Int64("budget-daily-bytes", 0, "daily coordination-byte cap stamped into every token (0 = none)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -55,11 +56,12 @@ func clientRegister(ctx context.Context, store iam.Store, args []string) error {
 	}
 
 	clientID, secret, err := iam.RegisterClient(ctx, store, iam.Client{
-		Workspace:     *ws,
-		Subject:       *member,
-		Kind:          *kind,
-		AllowedScopes: iam.ParseScopeList(*scopes),
-		TokenTTL:      *ttl,
+		Workspace:        *ws,
+		Subject:          *member,
+		Kind:             *kind,
+		AllowedScopes:    iam.ParseScopeList(*scopes),
+		TokenTTL:         *ttl,
+		BudgetDailyBytes: *budget,
 	})
 	if err != nil {
 		return err
@@ -69,6 +71,9 @@ func clientRegister(ctx context.Context, store iam.Store, args []string) error {
 	fmt.Printf("principal:     %s/%s (%s)\n", *ws, *member, *kind)
 	if *scopes != "" {
 		fmt.Printf("allowed scopes: %s\n", *scopes)
+	}
+	if *budget > 0 {
+		fmt.Printf("budget:        %d bytes/day (carried in every token)\n", *budget)
 	}
 	fmt.Printf("\nclient_secret: %s\n\n", secret)
 	fmt.Fprintln(os.Stderr, "Store this secret now — it is shown once and only its hash is kept.")

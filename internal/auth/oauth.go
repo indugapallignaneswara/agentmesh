@@ -183,7 +183,27 @@ func (a *JWTAuthenticator) principalFrom(c map[string]any) (Principal, error) {
 			return Principal{}, fmt.Errorf("%w: invalid %q claim", ErrUnauthenticated, a.cfg.KindClaim)
 		}
 	}
-	return Principal{Workspace: ws, Member: sub, Kind: kind}, nil
+
+	// Optional Agent-IAM budget claim: a per-principal daily coordination-byte
+	// cap carried by the token itself, so identity and spend control converge
+	// (docs/token-metering.md §7). Absent or non-numeric → no credential cap.
+	var budget int64
+	if n, ok := integer(c["budget_daily_bytes"]); ok && n > 0 {
+		budget = n
+	}
+	return Principal{Workspace: ws, Member: sub, Kind: kind, BudgetDailyBytes: budget}, nil
+}
+
+// integer reads a plain integer claim value.
+func integer(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return i, err == nil
+	}
+	return 0, false
 }
 
 // keyFor returns the signing key for a kid, refreshing the JWKS if the kid is

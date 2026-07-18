@@ -51,6 +51,12 @@ func (s *PGStore) migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("migrate iam_clients: %w", err)
 	}
+	// Additive column for pre-existing tables (M8 budget claim).
+	if _, err := s.pool.Exec(ctx, `
+		ALTER TABLE iam_clients
+		ADD COLUMN IF NOT EXISTS budget_daily_bytes bigint NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("migrate iam_clients budget column: %w", err)
+	}
 	return nil
 }
 
@@ -64,10 +70,10 @@ func (s *PGStore) CreateClient(ctx context.Context, c Client) error {
 	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO iam_clients
-			(client_id, secret_hash, workspace, subject, kind, allowed_scopes, token_ttl_secs, disabled, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			(client_id, secret_hash, workspace, subject, kind, allowed_scopes, token_ttl_secs, disabled, created_at, budget_daily_bytes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		c.ClientID, c.SecretHash, c.Workspace, c.Subject, c.Kind,
-		c.AllowedScopes, int64(c.TokenTTL.Seconds()), c.Disabled, c.CreatedAt)
+		c.AllowedScopes, int64(c.TokenTTL.Seconds()), c.Disabled, c.CreatedAt, c.BudgetDailyBytes)
 	if err != nil {
 		return fmt.Errorf("create client: %w", err)
 	}
@@ -114,7 +120,7 @@ func (s *PGStore) SetClientDisabled(ctx context.Context, clientID string, disabl
 }
 
 const clientSelect = `
-	SELECT client_id, secret_hash, workspace, subject, kind, allowed_scopes, token_ttl_secs, disabled, created_at
+	SELECT client_id, secret_hash, workspace, subject, kind, allowed_scopes, token_ttl_secs, disabled, created_at, budget_daily_bytes
 	FROM iam_clients`
 
 // rowScanner is satisfied by both pgx.Row and pgx.Rows.
@@ -126,7 +132,7 @@ func scanClient(row rowScanner) (Client, error) {
 	var c Client
 	var ttlSecs int64
 	if err := row.Scan(&c.ClientID, &c.SecretHash, &c.Workspace, &c.Subject,
-		&c.Kind, &c.AllowedScopes, &ttlSecs, &c.Disabled, &c.CreatedAt); err != nil {
+		&c.Kind, &c.AllowedScopes, &ttlSecs, &c.Disabled, &c.CreatedAt, &c.BudgetDailyBytes); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Client{}, ErrClientNotFound
 		}
