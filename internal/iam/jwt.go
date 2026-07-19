@@ -21,7 +21,10 @@ type Claims struct {
 	Audience  string `json:"aud"`       // single resource URI (RFC 8707)
 	Workspace string `json:"workspace"` // → Principal.Workspace
 	Kind      string `json:"kind"`      // → Principal.Kind (agent/human)
-	Scope     string `json:"scope,omitempty"`
+	// ClientID identifies WHICH registered client obtained the token — required
+	// by RFC 9068 §2.2 and the audit answer to "which credential minted this".
+	ClientID string `json:"client_id"`
+	Scope    string `json:"scope,omitempty"`
 	// BudgetDailyBytes is the Agent-IAM budget claim: a per-principal daily
 	// coordination-byte cap the resource server enforces (0 = omitted).
 	BudgetDailyBytes int64  `json:"budget_daily_bytes,omitempty"`

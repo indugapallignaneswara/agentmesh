@@ -105,6 +105,9 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	c, err := s.store.GetClient(r.Context(), clientID)
 	if err != nil {
 		if errors.Is(err, ErrClientNotFound) {
+			// Burn the same hash-compare work as the found path so an unknown
+			// client_id is not distinguishable from a wrong secret by timing.
+			verifySecret(secret, unknownClientHash)
 			writeInvalidClient(w, r)
 			return
 		}
@@ -151,6 +154,7 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	claims := Claims{
 		Issuer:           s.cfg.Issuer,
 		Subject:          c.Subject,
+		ClientID:         c.ClientID,
 		Audience:         resource,
 		Workspace:        c.Workspace,
 		Kind:             kind,
@@ -182,6 +186,10 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// unknownClientHash is a fixed dummy hash compared against when the client id
+// is unknown, equalising the timing of the two rejection paths.
+var unknownClientHash = HashSecret("agentiam-unknown-client-timing-pad")
+
 // clientAuth extracts client credentials from either HTTP Basic auth (preferred,
 // RFC 6749 §2.3.1) or the request body.
 func clientAuth(r *http.Request) (id, secret string, ok bool) {
@@ -212,7 +220,9 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		JWKSURI:                           base + "/.well-known/jwks.json",
 		GrantTypesSupported:               []string{"client_credentials"},
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},
-		ResponseTypesSupported:            []string{"token"},
+		// OAuth 2.1 removes the implicit grant; this server issues tokens only
+		// via the token endpoint, so no authorization-endpoint response types.
+		ResponseTypesSupported: []string{},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")
