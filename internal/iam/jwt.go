@@ -28,6 +28,10 @@ type Claims struct {
 	// BudgetDailyBytes is the Agent-IAM budget claim: a per-principal daily
 	// coordination-byte cap the resource server enforces (0 = omitted).
 	BudgetDailyBytes int64 `json:"budget_daily_bytes,omitempty"`
+	// Entitlements are arbitrary policy assertions carried from the client
+	// (P5). A relying party keys authorization off them; the audit trail
+	// records what was asserted. Omitted when the client has none.
+	Entitlements map[string]string `json:"ent,omitempty"`
 	// Act is the RFC 8693 §4.1 actor claim, present only on delegated tokens
 	// (token-exchange grant). `sub` stays the AGENT doing the work; Act names
 	// the HUMAN (and their IdP) on whose behalf it acts — the audit answer to

@@ -48,6 +48,8 @@ func clientRegister(ctx context.Context, store iam.Store, args []string) error {
 	scopes := fs.String("scopes", "", "comma/space separated allowed scopes")
 	ttl := fs.Duration("ttl", 0, "access-token lifetime (0 = server default)")
 	budget := fs.Int64("budget-daily-bytes", 0, "daily coordination-byte cap stamped into every token (0 = none)")
+	var ents entitlementFlag
+	fs.Var(&ents, "entitlement", "policy assertion key=value stamped into every token's `ent` claim (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -62,6 +64,7 @@ func clientRegister(ctx context.Context, store iam.Store, args []string) error {
 		AllowedScopes:    iam.ParseScopeList(*scopes),
 		TokenTTL:         *ttl,
 		BudgetDailyBytes: *budget,
+		Entitlements:     ents.m,
 	})
 	if err != nil {
 		return err

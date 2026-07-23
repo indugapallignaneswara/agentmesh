@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -76,7 +77,9 @@ func TestSignShapeHeaderAndClaims(t *testing.T) {
 	if err := json.Unmarshal(pb, &got); err != nil {
 		t.Fatalf("unmarshal claims: %v", err)
 	}
-	if got != in {
+	// Claims now contains map/pointer fields (Entitlements, Act, Cnf) that are
+	// not == comparable; reflect.DeepEqual handles the whole struct.
+	if !reflect.DeepEqual(got, in) {
 		t.Errorf("claims did not round-trip:\n got: %+v\nwant: %+v", got, in)
 	}
 }

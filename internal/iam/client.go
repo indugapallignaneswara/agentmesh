@@ -40,6 +40,12 @@ type Client struct {
 	// budget_daily_bytes claim: a per-principal daily coordination-byte cap the
 	// resource server enforces. Identity and spend control in one credential.
 	BudgetDailyBytes int64
+	// Entitlements are arbitrary policy assertions carried on every issued
+	// token as the `ent` claim (generalising budget_daily_bytes): rate limits,
+	// data-scope tags, tier — whatever a relying party chooses to key off.
+	// The credential asserts them and the audit trail records them; enforcement
+	// is each relying party's decision.
+	Entitlements map[string]string
 	// Disabled clients are refused at the token endpoint without being deleted
 	// (immediate, reversible revocation).
 	Disabled  bool
