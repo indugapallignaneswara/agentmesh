@@ -57,6 +57,8 @@ func run(args []string) error {
 		return runClient(args[1:])
 	case "token":
 		return runToken(args[1:])
+	case "audit":
+		return runAudit(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -75,6 +77,7 @@ Usage:
   agentiam client list [--workspace W]
   agentiam client disable --id agt_...    (use --enable to re-enable)
   agentiam token revoke --client ID --secret SECRET --token JWT [--endpoint URL]
+  agentiam audit query [--client ID] [--workspace W] [--type T] [--from RFC3339] [--to RFC3339] [--limit N] [--jsonl] [--endpoint URL] [--admin-token TOKEN]
 
 Env: AGENTIAM_ISSUER (required), AGENTIAM_HTTP_ADDR (:8090),
      AGENTIAM_SIGNING_KEY (PEM path; ephemeral if unset),
@@ -166,6 +169,17 @@ func runServe(args []string) error {
 		return err
 	}
 	defer closeRevocations()
+	audit, closeAudit, err := openAudit(context.Background(), log)
+	if err != nil {
+		return err
+	}
+	defer closeAudit()
+
+	adminToken := os.Getenv("AGENTIAM_ADMIN_TOKEN")
+	if adminToken == "" {
+		log.Warn("no AGENTIAM_ADMIN_TOKEN set; the audit API and admin console are DISABLED " +
+			"(they expose the whole fleet's activity and must be gated by a token)")
+	}
 
 	srv, err := iam.NewServer(iam.Config{
 		Issuer:         issuer,
@@ -173,14 +187,32 @@ func runServe(args []string) error {
 		Logger:         log,
 		SubjectIssuers: subjectIssuers,
 		Revocations:    revocations,
+		Audit:          audit,
+		AdminToken:     adminToken,
 	}, keys, store)
 	if err != nil {
 		return err
 	}
 
 	log.Info("agent-iam listening", "addr", *addr, "issuer", issuer,
-		"jwks", issuer+"/.well-known/jwks.json", "default_ttl", ttl.String())
+		"jwks", issuer+"/.well-known/jwks.json", "default_ttl", ttl.String(),
+		"admin_console", adminToken != "")
 	return listenAndServe(*addr, srv.Handler())
+}
+
+// openAudit returns the AuditStore backing the audit trail: Postgres when
+// AGENTIAM_DATABASE_URL is set, otherwise in-memory (resets on restart).
+func openAudit(ctx context.Context, log *slog.Logger) (iam.AuditStore, func(), error) {
+	if dsn := os.Getenv("AGENTIAM_DATABASE_URL"); dsn != "" {
+		pg, err := iam.NewPGAuditStore(ctx, dsn)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return pg, pg.Close, nil
+	}
+	log.Warn("no AGENTIAM_DATABASE_URL set; using in-memory audit store — " +
+		"the audit trail is lost on restart. Set a database URL for real use.")
+	return iam.NewMemAuditStore(), func() {}, nil
 }
 
 // openRevocations returns the RevocationStore backing /revoke and

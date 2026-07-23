@@ -35,6 +35,13 @@ type Config struct {
 	// memory revocations reset on restart; production passes a
 	// PGRevocationStore.
 	Revocations RevocationStore
+	// Audit persists the structured audit trail (P5). Nil defaults to an
+	// in-memory store (resets on restart; production passes a PGAuditStore).
+	Audit AuditStore
+	// AdminToken gates the audit query/export and the admin console. Empty
+	// means those surfaces are DISABLED (fail closed) — they expose the whole
+	// fleet's activity and must never be open.
+	AdminToken string
 }
 
 // Server is the OAuth 2.1 authorization server for agents. It authenticates
@@ -49,6 +56,8 @@ type Server struct {
 	trust *TrustRegistry
 	// revocations is the jti denylist (P3). Always non-nil.
 	revocations RevocationStore
+	// audit is the structured audit trail (P5). Always non-nil.
+	audit AuditStore
 }
 
 // NewServer builds an authorization server. Issuer and a key set are required.
@@ -75,13 +84,30 @@ func NewServer(cfg Config, keys *KeySet, store Store) (*Server, error) {
 	if revocations == nil {
 		revocations = NewMemRevocationStore()
 	}
+	audit := cfg.Audit
+	if audit == nil {
+		audit = NewMemAuditStore()
+	}
 	return &Server{
 		cfg:         cfg,
 		keys:        keys,
 		store:       store,
 		trust:       NewTrustRegistry(cfg.SubjectIssuers, nil),
 		revocations: revocations,
+		audit:       audit,
 	}, nil
+}
+
+// recordAudit appends an event best-effort: a failing audit store must never
+// block issuing or revoking a token (it logs and moves on). Use the server's
+// clock so tests are deterministic.
+func (s *Server) recordAudit(ctx context.Context, e AuditEvent) {
+	if e.TS.IsZero() {
+		e.TS = s.cfg.Now()
+	}
+	if err := s.audit.Append(ctx, e); err != nil {
+		s.cfg.Logger.Error("iam: audit append failed", "err", err, "type", e.Type)
+	}
 }
 
 // Handler returns the HTTP handler exposing /token, the JWKS, discovery
@@ -93,6 +119,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /revocations", s.handleRevocations)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.keys.JWKSHandler())
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleMetadata)
+	// P5 admin surfaces (gated by AdminToken; disabled when it is empty).
+	mux.HandleFunc("GET /audit", s.handleAudit)
+	mux.HandleFunc("GET /console", s.handleConsole)
+	mux.HandleFunc("GET /console/data", s.handleConsoleData)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -253,6 +283,7 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		Kind:             kind,
 		Scope:            strings.Join(scopes, " "),
 		BudgetDailyBytes: c.BudgetDailyBytes,
+		Entitlements:     c.Entitlements,
 		Cnf:              cnf,
 		IssuedAt:         now.Unix(),
 		NotBefore:        now.Unix(),
@@ -274,6 +305,12 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		logArgs = append(logArgs, "dpop-bound", true, "jkt", cnf.JKT)
 	}
 	s.cfg.Logger.Info("iam: issued token", logArgs...)
+	s.recordAudit(r.Context(), AuditEvent{
+		Type: AuditTokenIssued, ClientID: c.ClientID, Subject: c.Subject,
+		Workspace: c.Workspace, Kind: kind, JTI: jti, Scope: claims.Scope,
+		Audience: resource, DPoPBound: cnf != nil, Result: "ok",
+		RemoteIP: clientIP(r),
+	})
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
@@ -386,6 +423,7 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 		},
 		Cnf:              cnf,
 		BudgetDailyBytes: c.BudgetDailyBytes,
+		Entitlements:     c.Entitlements,
 		IssuedAt:         now.Unix(),
 		NotBefore:        now.Unix(),
 		Expiry:           exp.Unix(),
@@ -407,6 +445,12 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 		logArgs = append(logArgs, "dpop-bound", true, "jkt", cnf.JKT)
 	}
 	s.cfg.Logger.Info("iam: issued delegated token", logArgs...)
+	s.recordAudit(r.Context(), AuditEvent{
+		Type: AuditTokenExchanged, ClientID: c.ClientID, Subject: c.Subject,
+		Workspace: c.Workspace, Kind: kind, JTI: jti, Scope: claims.Scope,
+		Audience: resource, Actor: subject.Subject, ActorIssuer: subject.Issuer,
+		DPoPBound: cnf != nil, Result: "ok", RemoteIP: clientIP(r),
+	})
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
@@ -465,6 +509,11 @@ func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg.Logger.Info("iam: token revoked", "client", c.ClientID, "jti", claims.JTI,
 		"exp", time.Unix(claims.Expiry, 0).UTC().Format(time.RFC3339))
+	s.recordAudit(r.Context(), AuditEvent{
+		Type: AuditTokenRevoked, ClientID: c.ClientID, Subject: claims.Subject,
+		Workspace: claims.Workspace, JTI: claims.JTI, Result: "ok",
+		RemoteIP: clientIP(r),
+	})
 	w.WriteHeader(http.StatusOK)
 }
 
