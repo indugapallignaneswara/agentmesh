@@ -2,6 +2,9 @@ package iam
 
 import (
 	"context"
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -27,6 +30,11 @@ type Config struct {
 	// sources for the RFC 8693 token-exchange (delegation) grant. Empty means
 	// delegation is disabled: every exchange is rejected.
 	SubjectIssuers []TrustedIssuer
+	// Revocations persists the jti denylist behind /revoke and /revocations.
+	// Nil defaults to an in-memory store, so revocation always works — but
+	// memory revocations reset on restart; production passes a
+	// PGRevocationStore.
+	Revocations RevocationStore
 }
 
 // Server is the OAuth 2.1 authorization server for agents. It authenticates
@@ -39,6 +47,8 @@ type Server struct {
 	// trust validates delegation subject tokens against Config.SubjectIssuers.
 	// Always non-nil; with no configured issuers it rejects everything.
 	trust *TrustRegistry
+	// revocations is the jti denylist (P3). Always non-nil.
+	revocations RevocationStore
 }
 
 // NewServer builds an authorization server. Issuer and a key set are required.
@@ -61,11 +71,16 @@ func NewServer(cfg Config, keys *KeySet, store Store) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	revocations := cfg.Revocations
+	if revocations == nil {
+		revocations = NewMemRevocationStore()
+	}
 	return &Server{
-		cfg:   cfg,
-		keys:  keys,
-		store: store,
-		trust: NewTrustRegistry(cfg.SubjectIssuers, nil),
+		cfg:         cfg,
+		keys:        keys,
+		store:       store,
+		trust:       NewTrustRegistry(cfg.SubjectIssuers, nil),
+		revocations: revocations,
 	}, nil
 }
 
@@ -74,6 +89,8 @@ func NewServer(cfg Config, keys *KeySet, store Store) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", s.handleToken)
+	mux.HandleFunc("POST /revoke", s.handleRevoke)
+	mux.HandleFunc("GET /revocations", s.handleRevocations)
 	mux.HandleFunc("GET /.well-known/jwks.json", s.keys.JWKSHandler())
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleMetadata)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -402,6 +419,122 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleRevoke is RFC 7009 token revocation: POST /revoke with client auth and
+// a `token` body parameter adds the token's jti to the denylist. Ownership
+// rule: a client may revoke only tokens it obtained itself — the token's
+// client_id claim must equal the authenticated client's id. Per RFC 7009 §2.2
+// the endpoint answers 200 with an empty body even for expired, invalid, or
+// unparseable tokens (no validity oracle); an ownership mismatch is likewise
+// answered 200 as "nothing to revoke" (logged) rather than an error that would
+// confirm the token's existence to another client.
+func (s *Server) handleRevoke(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
+		return
+	}
+	c, ok := s.authenticateClient(w, r)
+	if !ok {
+		return
+	}
+	token := r.PostForm.Get("token")
+	if token == "" {
+		// A missing parameter is a malformed request (RFC 7009 §2.1), not a
+		// statement about any token — safe to reject loudly.
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "the 'token' parameter is required")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+
+	claims, valid := s.verifyOwnToken(token)
+	if !valid {
+		// Not a token this server issued (or not a token at all): already as
+		// revoked as it will ever be. 200, empty.
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if claims.ClientID != c.ClientID {
+		s.cfg.Logger.Warn("iam: revoke refused — token belongs to another client",
+			"caller", c.ClientID, "token_client", claims.ClientID, "jti", claims.JTI)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if err := s.revocations.Revoke(r.Context(), claims.JTI, time.Unix(claims.Expiry, 0).UTC()); err != nil {
+		s.cfg.Logger.Error("iam: revocation store failed", "err", err)
+		writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "revocation store unavailable")
+		return
+	}
+	s.cfg.Logger.Info("iam: token revoked", "client", c.ClientID, "jti", claims.JTI,
+		"exp", time.Unix(claims.Expiry, 0).UTC().Format(time.RFC3339))
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleRevocations serves the poll feed: the currently-active denylist as the
+// LOCKED RevocationFeed shape. Public by design — a resource server polls it
+// without client credentials, and it reveals only opaque jtis and expiries of
+// tokens that are already dead.
+func (s *Server) handleRevocations(w http.ResponseWriter, r *http.Request) {
+	now := s.cfg.Now()
+	entries, err := s.revocations.ListActive(r.Context(), now)
+	if err != nil {
+		s.cfg.Logger.Error("iam: revocation list failed", "err", err)
+		writeOAuthError(w, http.StatusServiceUnavailable, "server_error", "revocation store unavailable")
+		return
+	}
+	if entries == nil {
+		entries = []Revocation{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(RevocationFeed{AsOf: now, Entries: entries})
+}
+
+// verifyOwnToken parses a compact JWS and verifies that THIS server signed it,
+// checking the signature against the active key and every retired key still in
+// the JWKS. It deliberately does not check exp — /revoke accepts expired
+// tokens — and reports only ok/not-ok so handleRevoke cannot leak why a token
+// was rejected.
+func (s *Server) verifyOwnToken(token string) (Claims, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return Claims{}, false
+	}
+	var hdr jwtHeader
+	hb, err := b64d(parts[0])
+	if err != nil || json.Unmarshal(hb, &hdr) != nil {
+		return Claims{}, false
+	}
+	// This server only ever signs RS256 (jwt.go); anything else is not ours.
+	if hdr.Alg != "RS256" {
+		return Claims{}, false
+	}
+	pb, err := b64d(parts[1])
+	if err != nil {
+		return Claims{}, false
+	}
+	var claims Claims
+	if err := json.Unmarshal(pb, &claims); err != nil {
+		return Claims{}, false
+	}
+	sig, err := b64d(parts[2])
+	if err != nil {
+		return Claims{}, false
+	}
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+
+	keys := make([]*SigningKey, 0, 1+len(s.keys.retired))
+	keys = append(keys, s.keys.active)
+	keys = append(keys, s.keys.retired...)
+	for _, k := range keys {
+		if hdr.Kid != "" && hdr.Kid != k.Kid {
+			continue
+		}
+		if rsa.VerifyPKCS1v15(&k.private.PublicKey, crypto.SHA256, digest[:], sig) == nil {
+			return claims, true
+		}
+	}
+	return Claims{}, false
+}
+
 // unknownClientHash is a fixed dummy hash compared against when the client id
 // is unknown, equalising the timing of the two rejection paths.
 var unknownClientHash = HashSecret("agentiam-unknown-client-timing-pad")
@@ -422,6 +555,7 @@ func clientAuth(r *http.Request) (id, secret string, ok bool) {
 type authServerMetadata struct {
 	Issuer                            string   `json:"issuer"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
+	RevocationEndpoint                string   `json:"revocation_endpoint"`
 	JWKSURI                           string   `json:"jwks_uri"`
 	GrantTypesSupported               []string `json:"grant_types_supported"`
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
@@ -436,6 +570,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 	md := authServerMetadata{
 		Issuer:                            s.cfg.Issuer,
 		TokenEndpoint:                     base + "/token",
+		RevocationEndpoint:                base + "/revoke",
 		JWKSURI:                           base + "/.well-known/jwks.json",
 		GrantTypesSupported:               []string{"client_credentials", grantTokenExchange},
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},

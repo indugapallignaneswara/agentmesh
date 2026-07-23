@@ -8,6 +8,7 @@
 //	agentiam client register ...   register an agent client (prints secret once)
 //	agentiam client list ...       list registered clients
 //	agentiam client disable --id   revoke a client (reversible)
+//	agentiam token revoke ...      revoke one issued token (RFC 7009)
 //
 // Configuration (env):
 //
@@ -54,6 +55,8 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "client":
 		return runClient(args[1:])
+	case "token":
+		return runToken(args[1:])
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -71,6 +74,7 @@ Usage:
   agentiam client register --workspace W --member M [--scopes s1,s2] [--ttl 15m]
   agentiam client list [--workspace W]
   agentiam client disable --id agt_...    (use --enable to re-enable)
+  agentiam token revoke --client ID --secret SECRET --token JWT [--endpoint URL]
 
 Env: AGENTIAM_ISSUER (required), AGENTIAM_HTTP_ADDR (:8090),
      AGENTIAM_SIGNING_KEY (PEM path; ephemeral if unset),
@@ -157,12 +161,18 @@ func runServe(args []string) error {
 		return err
 	}
 	defer closeStore()
+	revocations, closeRevocations, err := openRevocations(context.Background(), log)
+	if err != nil {
+		return err
+	}
+	defer closeRevocations()
 
 	srv, err := iam.NewServer(iam.Config{
 		Issuer:         issuer,
 		DefaultTTL:     ttl,
 		Logger:         log,
 		SubjectIssuers: subjectIssuers,
+		Revocations:    revocations,
 	}, keys, store)
 	if err != nil {
 		return err
@@ -171,4 +181,21 @@ func runServe(args []string) error {
 	log.Info("agent-iam listening", "addr", *addr, "issuer", issuer,
 		"jwks", issuer+"/.well-known/jwks.json", "default_ttl", ttl.String())
 	return listenAndServe(*addr, srv.Handler())
+}
+
+// openRevocations returns the RevocationStore backing /revoke and
+// /revocations: Postgres when AGENTIAM_DATABASE_URL is set (same database as
+// the client store), otherwise in-memory — revocations then reset on restart,
+// which is acceptable only for the demo.
+func openRevocations(ctx context.Context, log *slog.Logger) (iam.RevocationStore, func(), error) {
+	if dsn := os.Getenv("AGENTIAM_DATABASE_URL"); dsn != "" {
+		pg, err := iam.NewPGRevocationStore(ctx, dsn)
+		if err != nil {
+			return nil, func() {}, err
+		}
+		return pg, pg.Close, nil
+	}
+	log.Warn("no AGENTIAM_DATABASE_URL set; using in-memory revocation store — " +
+		"revocations are lost on restart. Set a database URL for real use.")
+	return iam.NewMemRevocationStore(), func() {}, nil
 }
