@@ -27,11 +27,25 @@ type Claims struct {
 	Scope    string `json:"scope,omitempty"`
 	// BudgetDailyBytes is the Agent-IAM budget claim: a per-principal daily
 	// coordination-byte cap the resource server enforces (0 = omitted).
-	BudgetDailyBytes int64  `json:"budget_daily_bytes,omitempty"`
-	IssuedAt         int64  `json:"iat"`
-	NotBefore        int64  `json:"nbf"`
-	Expiry           int64  `json:"exp"`
-	JTI              string `json:"jti"`
+	BudgetDailyBytes int64 `json:"budget_daily_bytes,omitempty"`
+	// Act is the RFC 8693 §4.1 actor claim, present only on delegated tokens
+	// (token-exchange grant). `sub` stays the AGENT doing the work; Act names
+	// the HUMAN (and their IdP) on whose behalf it acts — the audit answer to
+	// "which human authorized this".
+	Act       *Actor `json:"act,omitempty"`
+	IssuedAt  int64  `json:"iat"`
+	NotBefore int64  `json:"nbf"`
+	Expiry    int64  `json:"exp"`
+	JTI       string `json:"jti"`
+}
+
+// Actor is the RFC 8693 §4.1 `act` claim value: the delegating party a
+// token-exchange grant proved via its subject_token.
+type Actor struct {
+	// Subject is the delegating human's stable identifier at their IdP.
+	Subject string `json:"sub"`
+	// Issuer is the trusted IdP that attested the human (subject token `iss`).
+	Issuer string `json:"iss,omitempty"`
 }
 
 // jwtHeader is the JOSE header. typ "at+jwt" (RFC 9068) marks this an OAuth 2.0

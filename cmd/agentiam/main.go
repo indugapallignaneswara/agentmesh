@@ -17,6 +17,13 @@
 //	                       ephemeral key is generated (demo only — tokens stop
 //	                       validating on restart)
 //	AGENTIAM_TOKEN_TTL     default access-token lifetime (default 15m)
+//	AGENTIAM_SUBJECT_ISSUERS
+//	                       comma-separated issuer=jwks_url pairs naming the
+//	                       human IdPs trusted as RFC 8693 subject_token
+//	                       sources, e.g.
+//	                       "https://idp.corp=https://idp.corp/jwks"; if
+//	                       unset, the token-exchange (delegation) grant is
+//	                       disabled
 package main
 
 import (
@@ -68,7 +75,9 @@ Usage:
 Env: AGENTIAM_ISSUER (required), AGENTIAM_HTTP_ADDR (:8090),
      AGENTIAM_SIGNING_KEY (PEM path; ephemeral if unset),
      AGENTIAM_TOKEN_TTL (15m),
-     AGENTIAM_DATABASE_URL (Postgres; in-memory if unset — demo only)
+     AGENTIAM_DATABASE_URL (Postgres; in-memory if unset — demo only),
+     AGENTIAM_SUBJECT_ISSUERS (issuer=jwks_url,... — human IdPs trusted for
+     RFC 8693 delegation; delegation disabled if unset)
 `)
 }
 
@@ -125,6 +134,20 @@ func runServe(args []string) error {
 		ttl = d
 	}
 
+	var subjectIssuers []iam.TrustedIssuer
+	if v := os.Getenv("AGENTIAM_SUBJECT_ISSUERS"); v != "" {
+		parsed, err := iam.ParseTrustedIssuers(v)
+		if err != nil {
+			return fmt.Errorf("AGENTIAM_SUBJECT_ISSUERS: %w", err)
+		}
+		subjectIssuers = parsed
+	}
+	if len(subjectIssuers) > 0 {
+		log.Info("delegation enabled", "trusted_subject_issuers", len(subjectIssuers))
+	} else {
+		log.Info("delegation disabled (no AGENTIAM_SUBJECT_ISSUERS configured)")
+	}
+
 	keys, err := loadKeySet(log)
 	if err != nil {
 		return err
@@ -135,7 +158,12 @@ func runServe(args []string) error {
 	}
 	defer closeStore()
 
-	srv, err := iam.NewServer(iam.Config{Issuer: issuer, DefaultTTL: ttl, Logger: log}, keys, store)
+	srv, err := iam.NewServer(iam.Config{
+		Issuer:         issuer,
+		DefaultTTL:     ttl,
+		Logger:         log,
+		SubjectIssuers: subjectIssuers,
+	}, keys, store)
 	if err != nil {
 		return err
 	}

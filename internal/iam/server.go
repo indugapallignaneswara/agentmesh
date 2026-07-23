@@ -21,6 +21,10 @@ type Config struct {
 	Now func() time.Time
 	// Logger is optional.
 	Logger *slog.Logger
+	// SubjectIssuers are the external human IdPs trusted as subject_token
+	// sources for the RFC 8693 token-exchange (delegation) grant. Empty means
+	// delegation is disabled: every exchange is rejected.
+	SubjectIssuers []TrustedIssuer
 }
 
 // Server is the OAuth 2.1 authorization server for agents. It authenticates
@@ -30,6 +34,9 @@ type Server struct {
 	cfg   Config
 	keys  *KeySet
 	store Store
+	// trust validates delegation subject tokens against Config.SubjectIssuers.
+	// Always non-nil; with no configured issuers it rejects everything.
+	trust *TrustRegistry
 }
 
 // NewServer builds an authorization server. Issuer and a key set are required.
@@ -52,7 +59,12 @@ func NewServer(cfg Config, keys *KeySet, store Store) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	return &Server{cfg: cfg, keys: keys, store: store}, nil
+	return &Server{
+		cfg:   cfg,
+		keys:  keys,
+		store: store,
+		trust: NewTrustRegistry(cfg.SubjectIssuers, nil),
+	}, nil
 }
 
 // Handler returns the HTTP handler exposing /token, the JWKS, discovery
@@ -69,37 +81,53 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// tokenResponse is the RFC 6749 §5.1 success body.
+// tokenResponse is the RFC 6749 §5.1 success body. IssuedTokenType is set only
+// on token-exchange responses (RFC 8693 §2.2.1, where it is REQUIRED).
 type tokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	ExpiresIn   int64  `json:"expires_in"`
-	Scope       string `json:"scope,omitempty"`
+	AccessToken     string `json:"access_token"`
+	IssuedTokenType string `json:"issued_token_type,omitempty"`
+	TokenType       string `json:"token_type"`
+	ExpiresIn       int64  `json:"expires_in"`
+	Scope           string `json:"scope,omitempty"`
 }
 
-// handleToken implements the token endpoint. Only grant_type=client_credentials
-// is supported today; token-exchange (delegation) is the planned second grant.
+// RFC 8693 grant and token-type identifiers.
+const (
+	grantTokenExchange   = "urn:ietf:params:oauth:grant-type:token-exchange"
+	tokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token"
+	tokenTypeJWT         = "urn:ietf:params:oauth:token-type:jwt"
+)
+
+// handleToken implements the token endpoint: grant_type=client_credentials
+// (an agent acting as itself) and RFC 8693 token exchange (an agent acting on
+// behalf of a human, proven by a subject_token from a trusted IdP).
 func (s *Server) handleToken(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
-	grant := r.PostForm.Get("grant_type")
-	if grant != "client_credentials" {
+	switch r.PostForm.Get("grant_type") {
+	case "client_credentials":
+		s.clientCredentials(w, r)
+	case grantTokenExchange:
+		s.tokenExchange(w, r)
+	default:
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type",
-			"only client_credentials is supported")
-		return
+			"only client_credentials and token-exchange are supported")
 	}
-	s.clientCredentials(w, r)
 }
 
-func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
+// authenticateClient runs the shared client-authentication flow for every
+// grant: extract credentials (Basic or body), look up the client, verify the
+// secret in constant time, refuse disabled clients. On failure it writes the
+// RFC 6749 §5.2 error and returns ok=false.
+func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request) (Client, bool) {
 	clientID, secret, ok := clientAuth(r)
 	if !ok || clientID == "" || secret == "" {
 		// RFC 6749 §5.2: when the client attempted Basic auth, answer 401 with a
 		// challenge; otherwise 400. Either way, invalid_client.
 		writeInvalidClient(w, r)
-		return
+		return Client{}, false
 	}
 
 	c, err := s.store.GetClient(r.Context(), clientID)
@@ -109,17 +137,25 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 			// client_id is not distinguishable from a wrong secret by timing.
 			verifySecret(secret, unknownClientHash)
 			writeInvalidClient(w, r)
-			return
+			return Client{}, false
 		}
 		s.cfg.Logger.Error("iam: client lookup failed", "err", err)
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "client lookup failed")
-		return
+		return Client{}, false
 	}
 	// Constant-time secret check regardless of disabled state, so a disabled
 	// client with a wrong secret is indistinguishable from a wrong secret.
 	secretOK := verifySecret(secret, c.SecretHash)
 	if !secretOK || c.Disabled {
 		writeInvalidClient(w, r)
+		return Client{}, false
+	}
+	return c, true
+}
+
+func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.authenticateClient(w, r)
+	if !ok {
 		return
 	}
 
@@ -173,7 +209,7 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.cfg.Logger.Info("iam: issued token",
-		"client", clientID, "sub", c.Subject, "workspace", c.Workspace,
+		"client", c.ClientID, "sub", c.Subject, "workspace", c.Workspace,
 		"aud", resource, "scope", claims.Scope, "ttl", ttl.String())
 
 	w.Header().Set("Cache-Control", "no-store")
@@ -183,6 +219,129 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		TokenType:   "Bearer",
 		ExpiresIn:   int64(ttl.Seconds()),
 		Scope:       claims.Scope,
+	})
+}
+
+// tokenExchange is the RFC 8693 token-exchange grant: the delegation path.
+// The AGENT authenticates as itself (same client auth as client_credentials)
+// and presents a subject_token — a JWT from a trusted human IdP proving which
+// human is delegating. The issued token keeps the agent as `sub` and stamps
+// the human into the `act` claim (docs/agentiam-standards.md §3), scoped to
+// the intersection of what was requested and what the client is allowed, and
+// expiring no later than the human's own authorization.
+func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.authenticateClient(w, r)
+	if !ok {
+		return
+	}
+
+	subjectToken := r.PostForm.Get("subject_token")
+	if subjectToken == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"the 'subject_token' parameter is required")
+		return
+	}
+	switch r.PostForm.Get("subject_token_type") {
+	case tokenTypeJWT, tokenTypeAccessToken:
+	default:
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"subject_token_type must be "+tokenTypeJWT+" or "+tokenTypeAccessToken)
+		return
+	}
+	if rt := r.PostForm.Get("requested_token_type"); rt != "" && rt != tokenTypeAccessToken {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"only "+tokenTypeAccessToken+" can be issued")
+		return
+	}
+	resource := r.PostForm.Get("resource")
+	if resource == "" {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_target",
+			"the 'resource' parameter (target audience) is required")
+		return
+	}
+
+	// Scope narrowing: requested ∩ client's allowed — a delegation can never
+	// broaden what the agent itself could be granted. Checked before the
+	// (network-bound) subject verification: cheap local failures first.
+	scopes, err := c.grantScopes(r.PostForm.Get("scope"))
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_scope", err.Error())
+		return
+	}
+
+	// Verify the subject token against the trust registry: trusted issuer,
+	// signature, expiry. One sentinel error — no oracle about which check failed.
+	subject, err := s.trust.Verify(r.Context(), subjectToken)
+	if err != nil {
+		if errors.Is(err, ErrSubjectRejected) {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "subject token rejected")
+			return
+		}
+		s.cfg.Logger.Error("iam: subject token verification failed", "err", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "subject token verification failed")
+		return
+	}
+
+	ttl := c.TokenTTL
+	if ttl <= 0 {
+		ttl = s.cfg.DefaultTTL
+	}
+	now := s.cfg.Now()
+	// Expiry rule (standards §3): exp = min(client TTL from now, subject exp).
+	// A delegated token must not outlive the human authorization backing it.
+	exp := now.Add(ttl)
+	if !subject.Expiry.IsZero() && subject.Expiry.Before(exp) {
+		exp = subject.Expiry
+	}
+
+	jti, err := newJTI()
+	if err != nil {
+		s.cfg.Logger.Error("iam: jti generation failed", "err", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token id generation failed")
+		return
+	}
+	kind := c.Kind
+	if kind == "" {
+		kind = "agent"
+	}
+	claims := Claims{
+		Issuer:    s.cfg.Issuer,
+		Subject:   c.Subject, // the AGENT does the acting; the human rides in `act`
+		ClientID:  c.ClientID,
+		Audience:  resource,
+		Workspace: c.Workspace,
+		Kind:      kind,
+		Scope:     strings.Join(scopes, " "),
+		Act: &Actor{
+			Subject: subject.Subject,
+			Issuer:  subject.Issuer,
+		},
+		BudgetDailyBytes: c.BudgetDailyBytes,
+		IssuedAt:         now.Unix(),
+		NotBefore:        now.Unix(),
+		Expiry:           exp.Unix(),
+		JTI:              jti,
+	}
+	token, err := s.keys.Sign(claims)
+	if err != nil {
+		s.cfg.Logger.Error("iam: token signing failed", "err", err)
+		writeOAuthError(w, http.StatusInternalServerError, "server_error", "token signing failed")
+		return
+	}
+
+	s.cfg.Logger.Info("iam: issued delegated token",
+		"client", c.ClientID, "sub", c.Subject, "act_sub", subject.Subject,
+		"act_iss", subject.Issuer, "aud", resource, "scope", claims.Scope,
+		"exp", exp.UTC().Format(time.RFC3339), "jti", jti)
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tokenResponse{
+		AccessToken:     token,
+		IssuedTokenType: tokenTypeAccessToken,
+		TokenType:       "Bearer",
+		ExpiresIn:       int64(exp.Sub(now).Seconds()),
+		Scope:           claims.Scope,
 	})
 }
 
@@ -218,7 +377,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		Issuer:                            s.cfg.Issuer,
 		TokenEndpoint:                     base + "/token",
 		JWKSURI:                           base + "/.well-known/jwks.json",
-		GrantTypesSupported:               []string{"client_credentials"},
+		GrantTypesSupported:               []string{"client_credentials", grantTokenExchange},
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},
 		// OAuth 2.1 removes the implicit grant; this server issues tokens only
 		// via the token endpoint, so no authorization-endpoint response types.

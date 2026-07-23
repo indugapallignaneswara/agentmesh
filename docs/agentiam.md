@@ -1,9 +1,11 @@
 # Agent-IAM — an identity provider for agents
 
-> Status: **foundation in progress.** This document is the design; the code
-> under `internal/iam` and `cmd/agentiam` implements it incrementally. It is a
-> separate product that happens to live in this repo today, built on the seam
-> `internal/auth` was designed around.
+> Status: **phases 1 and 2 implemented.** Phase 1 (client-credentials
+> foundation) and phase 2 (RFC 8693 delegation with the `act` claim) are built
+> and tested under `internal/iam` and `cmd/agentiam`. It is a separate product
+> that happens to live in this repo today, built on the seam `internal/auth`
+> was designed around. Product/market/standards direction:
+> `agentiam-product.md`, `agentiam-market.md`, `agentiam-standards.md`.
 
 ## Why a separate thing
 
@@ -97,24 +99,41 @@ The agent then calls AgentMesh with `Authorization: Bearer <access_token>`.
 Errors follow RFC 6749 §5.2 (`invalid_client`, `invalid_grant`,
 `invalid_scope`, `unsupported_grant_type`) with the right HTTP status.
 
-### 2. Delegation — human authorizes an agent *(phase 2, designed here)*
+### 2. Delegation — human authorizes an agent *(phase 2, implemented)*
 
-The agent-native grant. A human (already authenticated via the enterprise IdP)
-mints a **delegation**: "agent X may act as me in room team, scopes
-{messages:write, tasks:claim}, for 1 hour." Agent-IAM issues the agent a token
-whose `sub` is the agent but that carries an `act` (RFC 8693 actor) claim naming
-the delegating human, plus the constrained scope and a hard `exp`. This gives
-auditable "on behalf of" without the human ever sharing a credential, and it
-expires on its own. Token exchange (RFC 8693) is the mechanism.
+The agent-native grant, via RFC 8693 token exchange. A human (already
+authenticated via the enterprise IdP) hands the agent a `subject_token` — a JWT
+from a **trusted** IdP proving who is delegating. The agent authenticates as
+itself (same client auth as client credentials) and exchanges it:
 
-*Not built yet — the client-credentials foundation and the signing/JWKS/claims
-machinery it requires come first, and delegation reuses all of it.*
+```
+POST /token
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&subject_token=<IdP JWT for the human>
+&subject_token_type=urn:ietf:params:oauth:token-type:jwt
+&resource=https://mesh.example.com
+&scope=mesh:send            (optional; ⊆ client's allowed scopes)
+```
+
+Trusted IdPs come from `AGENTIAM_SUBJECT_ISSUERS` (`issuer=jwks_url,...`);
+with none configured the grant is disabled and every exchange is refused. The
+issued token keeps the AGENT as `sub` and stamps the human into the `act`
+(RFC 8693 actor) claim — `{"act": {"sub": "priya@corp.example", "iss":
+"https://login.corp.example"}}` — so a single token answers "which agent,
+authorized by which human, attested by which IdP". Scopes are the requested ∩
+client-allowed intersection (never broadened), and **`exp` = min(client TTL,
+the human token's own `exp`)**: a delegation cannot outlive the human
+authorization behind it. The response carries
+`issued_token_type=urn:ietf:params:oauth:token-type:access_token`, and the
+resource server validates the token unchanged (`act` rides along as an opaque
+audit claim). Bad subject tokens — untrusted issuer, bad signature, expired —
+all answer one `invalid_grant`, no oracle.
 
 ## Endpoints
 
 | method | path | purpose |
 |--------|------|---------|
-| POST | `/token` | grant endpoint (client_credentials now; token-exchange later) |
+| POST | `/token` | grant endpoint (client_credentials + RFC 8693 token-exchange) |
 | GET | `/.well-known/jwks.json` | public signing keys (RS validates against this) |
 | GET | `/.well-known/oauth-authorization-server` | RFC 8414 discovery metadata |
 | GET | `/healthz` | liveness |
