@@ -67,6 +67,10 @@ type OAuthConfig struct {
 	// sender-constrained token (RFC 9449). Optional: binding still holds
 	// without it, but a captured proof could be replayed within its iat window.
 	DPoPReplay dpop.ReplayGuard
+	// Revocations, when set, rejects a token whose jti has been revoked at the
+	// authorization server (P3). Optional: without it, tokens are bounded by
+	// their TTL alone (the JIT default).
+	Revocations RevocationChecker
 }
 
 // JWTAuthenticator validates OAuth 2.1 access tokens against an issuer's JWKS.
@@ -148,6 +152,14 @@ func (a *JWTAuthenticator) Authenticate(ctx context.Context, token string) (Prin
 	p, err := a.principalFrom(claims)
 	if err != nil {
 		return Principal{}, err
+	}
+	// P3: a revoked token is rejected before its natural expiry. The jti is the
+	// revocation key; a token issued without one cannot be individually revoked
+	// (and none of ours lack it).
+	if a.cfg.Revocations != nil {
+		if jti, _ := claims["jti"].(string); jti != "" && a.cfg.Revocations.IsRevoked(jti) {
+			return Principal{}, fmt.Errorf("%w: token revoked", ErrUnauthenticated)
+		}
 	}
 	// RFC 9449: if the token is sender-constrained (a cnf.jkt confirmation
 	// claim), the caller must prove possession of the matching key with a

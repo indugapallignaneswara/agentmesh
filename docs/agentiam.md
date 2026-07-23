@@ -151,11 +151,36 @@ yields an ordinary bearer token, byte-identical to before. Bad proofs answer
 by the resource server. `AGENTIAM`/mesh advertise
 `dpop_signing_alg_values_supported: ["ES256","RS256"]`.
 
+## Short-lived tokens & revocation (JIT + RFC 7009) — *implemented*
+
+The default posture is **just-in-time**: register a client with a short TTL and
+have the agent fetch a fresh token per task, so most credentials expire before
+anyone would think to revoke them. For the tail — "kill THIS token now, and its
+expiry is still minutes away" — self-contained JWTs need a denylist, because a
+signed token cannot be un-issued.
+
+A client revokes its own token at `POST /revoke` (RFC 7009): the server checks
+the token was one it issued and that the token's `client_id` matches the
+authenticated client (a client can only revoke tokens it obtained), then records
+the `jti` until the token's own expiry. Per RFC 7009 an unparseable or
+foreign token still answers `200` — no validity oracle.
+
+Because the mesh (resource server) is a separate process, revocations reach it
+through a feed: `GET /revocations` publishes the currently-active denylist
+(`{as_of, entries:[{jti, exp}]}`); the mesh polls it (`AGENTMESH_OAUTH_REVOCATION_URL`,
+every 30s) into a lock-free cached set and rejects any token whose `jti` is
+listed. The tradeoff is the standard CRL one: a revocation takes effect within
+one poll interval, and if Agent-IAM is briefly unreachable the mesh keeps its
+last-known denylist (fail-safe — an outage never silently un-revokes). Discovery
+advertises `revocation_endpoint`.
+
 ## Endpoints
 
 | method | path | purpose |
 |--------|------|---------|
 | POST | `/token` | grant endpoint (client_credentials + RFC 8693 token-exchange; optional DPoP binding) |
+| POST | `/revoke` | RFC 7009 token revocation (client-authenticated; own tokens only) |
+| GET | `/revocations` | the active jti denylist a resource server polls |
 | GET | `/.well-known/jwks.json` | public signing keys (RS validates against this) |
 | GET | `/.well-known/oauth-authorization-server` | RFC 8414 discovery metadata |
 | GET | `/healthz` | liveness |

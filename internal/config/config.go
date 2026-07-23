@@ -29,6 +29,10 @@ type Config struct {
 	OAuthIssuer   string // expected `iss`
 	OAuthAudience string // this server's canonical URI; validated as `aud` (RFC 8707)
 	OAuthJWKSURL  string // issuer's signing keys
+	// OAuthRevocationURL, when set, is the authorization server's /revocations
+	// feed; the mesh polls it and rejects revoked tokens (P3). Empty = tokens
+	// bounded by TTL alone (the JIT default).
+	OAuthRevocationURL string
 	// DatabaseURL is the Postgres DSN (authoritative store).
 	DatabaseURL string
 	// NATSURL is the NATS server URL. When empty, a no-op bus is used.
@@ -86,6 +90,7 @@ func Load() (Config, error) {
 		OAuthIssuer:        env("AGENTMESH_OAUTH_ISSUER", ""),
 		OAuthAudience:      env("AGENTMESH_OAUTH_AUDIENCE", ""),
 		OAuthJWKSURL:       env("AGENTMESH_OAUTH_JWKS_URL", ""),
+		OAuthRevocationURL: env("AGENTMESH_OAUTH_REVOCATION_URL", ""),
 		ImplicitWorkspaces: envBool("AGENTMESH_IMPLICIT_WORKSPACES", true),
 		LogLevel:           env("AGENTMESH_LOG_LEVEL", "info"),
 	}

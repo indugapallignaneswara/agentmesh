@@ -152,13 +152,24 @@ func run() error {
 		var authn auth.Authenticator = &auth.TokenAuthenticator{Store: st}
 
 		if cfg.Auth == "oauth" {
+			// P3: when a revocation feed is configured, poll it and reject
+			// revoked tokens before their natural expiry. Off → TTL only (JIT).
+			var revChecker auth.RevocationChecker
+			if cfg.OAuthRevocationURL != "" {
+				poller := auth.NewPollingRevocationChecker(cfg.OAuthRevocationURL, 30*time.Second)
+				poller.Start(ctx)
+				defer poller.Stop()
+				revChecker = poller
+				logger.Info("token revocation enabled", "feed", cfg.OAuthRevocationURL)
+			}
 			jwtAuth, err := auth.NewJWTAuthenticator(auth.OAuthConfig{
 				Issuer:   cfg.OAuthIssuer,
 				Audience: cfg.OAuthAudience,
 				JWKSURL:  cfg.OAuthJWKSURL,
 				// Reject replayed DPoP proofs on sender-constrained tokens
 				// (RFC 9449). Window a little over the proof iat leeway.
-				DPoPReplay: dpop.NewMemReplayGuard(2 * time.Minute),
+				DPoPReplay:  dpop.NewMemReplayGuard(2 * time.Minute),
+				Revocations: revChecker,
 			})
 			if err != nil {
 				return err
