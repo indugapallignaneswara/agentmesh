@@ -35,24 +35,57 @@ func Middleware(authn Authenticator, passthrough ...string) func(http.Handler) h
 				challenge(w, "missing credentials")
 				return
 			}
-			p, err := authn.Authenticate(r.Context(), secret)
+			ctx := r.Context()
+			// RFC 9449: a DPoP-scheme request (or any request carrying a DPoP
+			// header) may present a sender-constrained token. Stash the proof
+			// and the request's method/URI so the authenticator can verify
+			// possession. Non-DPoP requests are unaffected.
+			if proof := r.Header.Get("DPoP"); proof != "" {
+				ctx = WithDPoP(ctx, proof, r.Method, requestURI(r))
+			}
+			p, err := authn.Authenticate(ctx, secret)
 			if err != nil {
 				challenge(w, "invalid credentials")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
+			next.ServeHTTP(w, r.WithContext(WithPrincipal(ctx, p)))
 		})
 	}
 }
 
 func bearerSecret(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); h != "" {
+		// Accept both "Bearer <token>" and, for sender-constrained tokens,
+		// "DPoP <token>" (RFC 9449 §7.1). The scheme selects presentation; the
+		// cnf.jkt claim in the token is what actually triggers proof checking.
 		if rest, ok := strings.CutPrefix(h, "Bearer "); ok {
+			return strings.TrimSpace(rest)
+		}
+		if rest, ok := strings.CutPrefix(h, "DPoP "); ok {
 			return strings.TrimSpace(rest)
 		}
 		return ""
 	}
 	return r.URL.Query().Get("token")
+}
+
+// requestURI reconstructs the absolute request URI (scheme://host/path, no
+// query or fragment) that a DPoP proof's htu is bound to. It honours a
+// trusted reverse proxy's X-Forwarded-Proto/Host, matching how the issuer
+// derives the token-endpoint htu.
+func requestURI(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if xf := r.Header.Get("X-Forwarded-Proto"); xf != "" {
+		scheme = xf
+	}
+	host := r.Host
+	if xh := r.Header.Get("X-Forwarded-Host"); xh != "" {
+		host = xh
+	}
+	return scheme + "://" + host + r.URL.Path
 }
 
 func challenge(w http.ResponseWriter, msg string) {

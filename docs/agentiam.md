@@ -129,11 +129,33 @@ resource server validates the token unchanged (`act` rides along as an opaque
 audit claim). Bad subject tokens — untrusted issuer, bad signature, expired —
 all answer one `invalid_grant`, no oracle.
 
+## Sender-constrained tokens (DPoP, RFC 9449) — *implemented*
+
+The agent-specific threat: an access token lives in the agent's context window
+and environment, where a **prompt-injection** attack can make the agent leak
+it. A plain bearer token, once leaked, is fully usable by the thief. DPoP makes
+a leaked token **inert**.
+
+The agent holds a keypair whose private half never leaves its runtime. On the
+`/token` request it sends a `DPoP:` proof header (a short JWS signed by that
+key); the authorization server binds the issued token to the key with a
+`cnf.jkt` thumbprint claim and returns `token_type: DPoP`. Thereafter every
+call to AgentMesh must carry a **fresh** DPoP proof for that exact request
+(method + URI + a hash of the token); the resource server checks the proof's
+key thumbprint equals the token's `cnf.jkt`. A token scraped from an agent's
+context is useless — the attacker cannot mint the proof without the private
+key, and a captured proof is single-use (jti replay cache) and bound to one
+method/URI. Opt-in and backward compatible: a request with no `DPoP` header
+yields an ordinary bearer token, byte-identical to before. Bad proofs answer
+`invalid_dpop_proof`; a bound token presented without a valid proof is rejected
+by the resource server. `AGENTIAM`/mesh advertise
+`dpop_signing_alg_values_supported: ["ES256","RS256"]`.
+
 ## Endpoints
 
 | method | path | purpose |
 |--------|------|---------|
-| POST | `/token` | grant endpoint (client_credentials + RFC 8693 token-exchange) |
+| POST | `/token` | grant endpoint (client_credentials + RFC 8693 token-exchange; optional DPoP binding) |
 | GET | `/.well-known/jwks.json` | public signing keys (RS validates against this) |
 | GET | `/.well-known/oauth-authorization-server` | RFC 8414 discovery metadata |
 | GET | `/healthz` | liveness |

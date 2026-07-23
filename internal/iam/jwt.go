@@ -32,11 +32,17 @@ type Claims struct {
 	// (token-exchange grant). `sub` stays the AGENT doing the work; Act names
 	// the HUMAN (and their IdP) on whose behalf it acts — the audit answer to
 	// "which human authorized this".
-	Act       *Actor `json:"act,omitempty"`
-	IssuedAt  int64  `json:"iat"`
-	NotBefore int64  `json:"nbf"`
-	Expiry    int64  `json:"exp"`
-	JTI       string `json:"jti"`
+	Act *Actor `json:"act,omitempty"`
+	// Cnf is the RFC 7800 confirmation claim, present only on DPoP-bound
+	// (sender-constrained, RFC 9449) tokens. Its jkt member is the thumbprint of
+	// the client's DPoP public key; the resource server requires a matching DPoP
+	// proof on every request that presents the token. Omitted (omitempty) on
+	// plain bearer tokens, which stay byte-identical to pre-DPoP issuance.
+	Cnf       *Confirmation `json:"cnf,omitempty"`
+	IssuedAt  int64         `json:"iat"`
+	NotBefore int64         `json:"nbf"`
+	Expiry    int64         `json:"exp"`
+	JTI       string        `json:"jti"`
 }
 
 // Actor is the RFC 8693 §4.1 `act` claim value: the delegating party a
@@ -46,6 +52,13 @@ type Actor struct {
 	Subject string `json:"sub"`
 	// Issuer is the trusted IdP that attested the human (subject token `iss`).
 	Issuer string `json:"iss,omitempty"`
+}
+
+// Confirmation is the RFC 7800 `cnf` claim value. For DPoP (RFC 9449 §6.1)
+// the only member is jkt: the base64url RFC 7638 SHA-256 thumbprint of the
+// JWK the client proved possession of at the token endpoint.
+type Confirmation struct {
+	JKT string `json:"jkt"`
 }
 
 // jwtHeader is the JOSE header. typ "at+jwt" (RFC 9068) marks this an OAuth 2.0

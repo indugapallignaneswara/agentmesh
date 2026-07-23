@@ -21,6 +21,7 @@ import (
 	"github.com/indugapallignaneswara/agentmesh/internal/config"
 	"github.com/indugapallignaneswara/agentmesh/internal/dashboard"
 	"github.com/indugapallignaneswara/agentmesh/internal/discovery"
+	"github.com/indugapallignaneswara/agentmesh/internal/dpop"
 	"github.com/indugapallignaneswara/agentmesh/internal/mcpserver"
 	"github.com/indugapallignaneswara/agentmesh/internal/metrics"
 	"github.com/indugapallignaneswara/agentmesh/internal/store"
@@ -155,6 +156,9 @@ func run() error {
 				Issuer:   cfg.OAuthIssuer,
 				Audience: cfg.OAuthAudience,
 				JWKSURL:  cfg.OAuthJWKSURL,
+				// Reject replayed DPoP proofs on sender-constrained tokens
+				// (RFC 9449). Window a little over the proof iat leeway.
+				DPoPReplay: dpop.NewMemReplayGuard(2 * time.Minute),
 			})
 			if err != nil {
 				return err

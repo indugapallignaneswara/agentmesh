@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/indugapallignaneswara/agentmesh/internal/dpop"
 )
 
 // Config configures the authorization server.
@@ -153,6 +155,39 @@ func (s *Server) authenticateClient(w http.ResponseWriter, r *http.Request) (Cli
 	return c, true
 }
 
+// dpopBind implements the RFC 9449 §5 token-endpoint side of DPoP. If the
+// request carries a DPoP header, the proof is verified against this endpoint
+// (htm=POST, htu=the absolute token-endpoint URL) and the returned Confirmation
+// carries the key thumbprint to bind into the token as cnf.jkt, with token_type
+// "DPoP". With no DPoP header the request is a plain bearer flow: (nil,
+// "Bearer", nil) — fully backward compatible. A present-but-invalid proof is an
+// error the caller renders as invalid_dpop_proof (RFC 9449 §5.2, HTTP 400).
+func (s *Server) dpopBind(r *http.Request) (*Confirmation, string, error) {
+	proofJWT := r.Header.Get("DPoP")
+	if proofJWT == "" {
+		return nil, "Bearer", nil
+	}
+	// Absolute token-endpoint URL as the client saw it. r.URL on a server
+	// request is path-only, so reconstruct scheme+host: direct TLS or a
+	// terminating proxy (X-Forwarded-Proto) means https.
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	htu := scheme + "://" + r.Host + r.URL.Path
+	proof, err := dpop.Verify(proofJWT, dpop.Params{
+		HTM: http.MethodPost,
+		HTU: htu,
+		Now: s.cfg.Now,
+		// No ExpectedATH: at the token endpoint the access token does not exist
+		// yet (RFC 9449 §4.3 note); ath binding happens at the resource server.
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return &Confirmation{JKT: proof.JKT}, "DPoP", nil
+}
+
 func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.authenticateClient(w, r)
 	if !ok {
@@ -187,6 +222,11 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "agent"
 	}
+	cnf, tokenType, err := s.dpopBind(r)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_dpop_proof", "invalid DPoP proof")
+		return
+	}
 	claims := Claims{
 		Issuer:           s.cfg.Issuer,
 		Subject:          c.Subject,
@@ -196,6 +236,7 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		Kind:             kind,
 		Scope:            strings.Join(scopes, " "),
 		BudgetDailyBytes: c.BudgetDailyBytes,
+		Cnf:              cnf,
 		IssuedAt:         now.Unix(),
 		NotBefore:        now.Unix(),
 		Expiry:           now.Add(ttl).Unix(),
@@ -208,15 +249,20 @@ func (s *Server) clientCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cfg.Logger.Info("iam: issued token",
+	logArgs := []any{
 		"client", c.ClientID, "sub", c.Subject, "workspace", c.Workspace,
-		"aud", resource, "scope", claims.Scope, "ttl", ttl.String())
+		"aud", resource, "scope", claims.Scope, "ttl", ttl.String(),
+	}
+	if cnf != nil {
+		logArgs = append(logArgs, "dpop-bound", true, "jkt", cnf.JKT)
+	}
+	s.cfg.Logger.Info("iam: issued token", logArgs...)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(tokenResponse{
 		AccessToken: token,
-		TokenType:   "Bearer",
+		TokenType:   tokenType,
 		ExpiresIn:   int64(ttl.Seconds()),
 		Scope:       claims.Scope,
 	})
@@ -304,6 +350,11 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "agent"
 	}
+	cnf, tokenType, err := s.dpopBind(r)
+	if err != nil {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_dpop_proof", "invalid DPoP proof")
+		return
+	}
 	claims := Claims{
 		Issuer:    s.cfg.Issuer,
 		Subject:   c.Subject, // the AGENT does the acting; the human rides in `act`
@@ -316,6 +367,7 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 			Subject: subject.Subject,
 			Issuer:  subject.Issuer,
 		},
+		Cnf:              cnf,
 		BudgetDailyBytes: c.BudgetDailyBytes,
 		IssuedAt:         now.Unix(),
 		NotBefore:        now.Unix(),
@@ -329,17 +381,22 @@ func (s *Server) tokenExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.cfg.Logger.Info("iam: issued delegated token",
+	logArgs := []any{
 		"client", c.ClientID, "sub", c.Subject, "act_sub", subject.Subject,
 		"act_iss", subject.Issuer, "aud", resource, "scope", claims.Scope,
-		"exp", exp.UTC().Format(time.RFC3339), "jti", jti)
+		"exp", exp.UTC().Format(time.RFC3339), "jti", jti,
+	}
+	if cnf != nil {
+		logArgs = append(logArgs, "dpop-bound", true, "jkt", cnf.JKT)
+	}
+	s.cfg.Logger.Info("iam: issued delegated token", logArgs...)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(tokenResponse{
 		AccessToken:     token,
 		IssuedTokenType: tokenTypeAccessToken,
-		TokenType:       "Bearer",
+		TokenType:       tokenType,
 		ExpiresIn:       int64(exp.Sub(now).Seconds()),
 		Scope:           claims.Scope,
 	})
@@ -369,6 +426,9 @@ type authServerMetadata struct {
 	GrantTypesSupported               []string `json:"grant_types_supported"`
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 	ResponseTypesSupported            []string `json:"response_types_supported"`
+	// DPoPSigningAlgValuesSupported advertises DPoP support (RFC 9449 §5.1):
+	// the JWS algorithms accepted for DPoP proof JWTs at the token endpoint.
+	DPoPSigningAlgValuesSupported []string `json:"dpop_signing_alg_values_supported"`
 }
 
 func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
@@ -381,7 +441,8 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		TokenEndpointAuthMethodsSupported: []string{"client_secret_basic", "client_secret_post"},
 		// OAuth 2.1 removes the implicit grant; this server issues tokens only
 		// via the token endpoint, so no authorization-endpoint response types.
-		ResponseTypesSupported: []string{},
+		ResponseTypesSupported:        []string{},
+		DPoPSigningAlgValuesSupported: []string{"ES256", "RS256"},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")

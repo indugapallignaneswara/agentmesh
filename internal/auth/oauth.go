@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/indugapallignaneswara/agentmesh/internal/dpop"
 	"github.com/indugapallignaneswara/agentmesh/internal/model"
 )
 
@@ -62,6 +63,10 @@ type OAuthConfig struct {
 	Now func() time.Time
 	// Leeway tolerates clock skew on exp/nbf (default 60s).
 	Leeway time.Duration
+	// DPoPReplay, when set, rejects a replayed DPoP proof jti on a
+	// sender-constrained token (RFC 9449). Optional: binding still holds
+	// without it, but a captured proof could be replayed within its iat window.
+	DPoPReplay dpop.ReplayGuard
 }
 
 // JWTAuthenticator validates OAuth 2.1 access tokens against an issuer's JWKS.
@@ -140,7 +145,18 @@ func (a *JWTAuthenticator) Authenticate(ctx context.Context, token string) (Prin
 	if err := json.Unmarshal(pb, &claims); err != nil {
 		return Principal{}, ErrUnauthenticated
 	}
-	return a.principalFrom(claims)
+	p, err := a.principalFrom(claims)
+	if err != nil {
+		return Principal{}, err
+	}
+	// RFC 9449: if the token is sender-constrained (a cnf.jkt confirmation
+	// claim), the caller must prove possession of the matching key with a
+	// fresh DPoP proof on THIS request. A token exfiltrated from an agent's
+	// context window is inert without the private key.
+	if err := a.verifyConfirmation(ctx, token, claims); err != nil {
+		return Principal{}, err
+	}
+	return p, nil
 }
 
 // principalFrom validates the registered claims and maps the token to an
