@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent-IAM Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+         background: #0d1117; color: #c9d1d9; }
+  header { display: flex; gap: 12px; align-items: center; padding: 12px 18px;
+           border-bottom: 1px solid #21262d; position: sticky; top: 0; background: #0d1117; z-index: 1; }
+  header h1 { font-size: 15px; margin: 0; color: #58a6ff; }
+  header input, .filters input, .filters select {
+    background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; padding: 4px 8px; font: inherit; }
+  header input { width: 22em; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #f85149; flex: none; }
+  header .dot.ok { background: #3fb950; }
+  main { display: grid; gap: 14px; padding: 14px 18px; grid-template-columns: 1fr; }
+  section { background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+            padding: 12px 14px; min-height: 60px; }
+  section h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+               letter-spacing: .08em; color: #8b949e; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; color: #8b949e; font-weight: normal; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .06em; padding: 4px 10px 4px 0;
+       border-bottom: 1px solid #21262d; white-space: nowrap; }
+  td { padding: 4px 10px 4px 0; border-bottom: 1px dashed #21262d;
+       vertical-align: top; word-break: break-word; }
+  tr:last-child td { border-bottom: 0; }
+  .chip { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 11px;
+          border: 1px solid #30363d; margin: 0 4px 2px 0; color: #8b949e; white-space: nowrap; }
+  .chip.issued    { color: #3fb950; border-color: #3fb95055; }
+  .chip.exchanged { color: #58a6ff; border-color: #58a6ff55; }
+  .chip.revoked   { color: #d29922; border-color: #d2992255; }
+  .chip.denied    { color: #f85149; border-color: #f8514955; }
+  .chip.off       { color: #f85149; border-color: #f8514955; }
+  .muted { color: #8b949e; }
+  .empty { color: #484f58; font-style: italic; padding: 6px 0; }
+  .filters { display: flex; gap: 10px; align-items: center; margin-bottom: 8px;
+             font-size: 12px; color: #8b949e; flex-wrap: wrap; }
+  #locked { display: none; margin: 14px 18px; padding: 14px; border: 1px solid #d2992255;
+            border-radius: 8px; background: #161b22; color: #d29922; }
+  #locked.show { display: block; }
+  #locked.show ~ main { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent-IAM Console</h1>
+  <span class="dot" id="dot" title="connection"></span>
+  <label class="muted">admin token <input id="tok" type="password" placeholder="bearer token"></label>
+  <span class="muted" id="asof"></span>
+</header>
+<div id="locked">admin token required — enter the admin bearer token above.
+  <span class="muted">(the console data endpoint answered 401; the token is wrong, missing,
+  or admin surfaces are disabled on this server)</span></div>
+<main>
+  <section>
+    <h2>Clients</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>client_id</th><th>workspace</th><th>subject</th><th>kind</th>
+        <th>scopes</th><th>budget/day</th><th>entitlements</th><th>status</th><th>created</th></tr></thead>
+      <tbody id="clients"></tbody>
+    </table></div>
+    <div class="empty" id="clients-empty" hidden>no clients registered</div>
+  </section>
+  <section>
+    <h2>Recent activity (audit)</h2>
+    <div class="filters">
+      filter
+      <input id="f-client" placeholder="client_id" size="24">
+      <select id="f-type">
+        <option value="">all types</option>
+        <option value="token.issued">token.issued</option>
+        <option value="token.exchanged">token.exchanged</option>
+        <option value="token.revoked">token.revoked</option>
+        <option value="token.denied">token.denied</option>
+      </select>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>ts</th><th>type</th><th>client_id</th><th>subject</th><th>jti</th>
+        <th>actor</th><th>dpop</th><th>result</th></tr></thead>
+      <tbody id="audit"></tbody>
+    </table></div>
+    <div class="empty" id="audit-empty" hidden>no audit events</div>
+  </section>
+  <section>
+    <h2>Active revocations</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>jti</th><th>expiry</th></tr></thead>
+      <tbody id="revocations"></tbody>
+    </table></div>
+    <div class="empty" id="revocations-empty" hidden>no active revocations</div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+// esc mirrors the dashboard's XSS guard: every interpolated string goes through it.
+const esc = s => String(s ?? "").replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+$("tok").value = localStorage.getItem("agentiam_admin_token") || "";
+$("tok").addEventListener("change", () => {
+  localStorage.setItem("agentiam_admin_token", $("tok").value.trim());
+  tick();
+});
+$("f-client").addEventListener("change", tick);
+$("f-type").addEventListener("change", tick);
+
+function rows(tbodyId, items, fmt) {
+  const has = items && items.length;
+  $(tbodyId).innerHTML = has ? items.map(fmt).join("") : "";
+  $(tbodyId + "-empty").hidden = !!has;
+}
+
+const shortJTI = j => j && j.length > 10 ? esc(j.slice(0, 10)) + "…" : esc(j || "");
+const fmtTS = t => { const d = new Date(t); return isNaN(d) ? esc(t) : esc(d.toISOString().replace(".000Z", "Z")); };
+const typeChip = t => {
+  const cls = { "token.issued": "issued", "token.exchanged": "exchanged",
+                "token.revoked": "revoked", "token.denied": "denied" }[t] || "";
+  return `<span class="chip ${cls}">${esc(t)}</span>`;
+};
+function fmtBytes(n) {
+  n = n || 0;
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + "MB";
+  if (n >= 1024) return (n / 1024).toFixed(1) + "KB";
+  return n + "B";
+}
+
+async function tick() {
+  const tok = $("tok").value.trim();
+  const q = new URLSearchParams();
+  if ($("f-client").value.trim()) q.set("client_id", $("f-client").value.trim());
+  if ($("f-type").value) q.set("type", $("f-type").value);
+  try {
+    const r = await fetch("/console/data" + (q.toString() ? "?" + q : ""),
+      { headers: { "Authorization": "Bearer " + tok } });
+    if (r.status === 401) {  // bad/missing token: visible locked state, never a blank page
+      $("dot").className = "dot";
+      $("locked").className = "show";
+      $("asof").textContent = "";
+      return;
+    }
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    $("dot").className = "dot ok";
+    $("locked").className = "";
+    $("asof").textContent = d.as_of ? "as of " + fmtTS(d.as_of) : "";
+
+    rows("clients", d.clients, c => {
+      const scopes = (c.allowed_scopes || []).map(s => `<span class="chip">${esc(s)}</span>`).join("") ||
+        '<span class="muted">(none)</span>';
+      const ents = Object.entries(c.entitlements || {})
+        .map(([k, v]) => `<span class="chip">${esc(k)}=${esc(v)}</span>`).join("") ||
+        '<span class="muted">–</span>';
+      const status = c.disabled ? '<span class="chip off">disabled</span>'
+                                : '<span class="chip issued">active</span>';
+      const budget = c.budget_daily_bytes ? esc(fmtBytes(c.budget_daily_bytes)) : '<span class="muted">–</span>';
+      return `<tr><td>${esc(c.client_id)}</td><td>${esc(c.workspace)}</td>` +
+        `<td>${esc(c.subject)}</td><td>${esc(c.kind)}</td><td>${scopes}</td>` +
+        `<td>${budget}</td><td>${ents}</td><td>${status}</td><td>${fmtTS(c.created_at)}</td></tr>`;
+    });
+
+    rows("audit", d.audit, e =>
+      `<tr><td class="muted">${fmtTS(e.ts)}</td><td>${typeChip(e.type)}</td>` +
+      `<td>${esc(e.client_id)}</td><td>${esc(e.subject)}</td>` +
+      `<td title="${esc(e.jti)}">${shortJTI(e.jti)}</td>` +
+      `<td>${e.actor ? esc(e.actor) + (e.actor_issuer ? ` <span class="muted">@ ${esc(e.actor_issuer)}</span>` : "") : '<span class="muted">–</span>'}</td>` +
+      `<td>${e.dpop_bound ? "✓" : '<span class="muted">–</span>'}</td>` +
+      `<td>${e.result === "ok" ? '<span class="chip issued">ok</span>' : `<span class="chip denied">${esc(e.result)}</span>`}` +
+      `${e.reason ? ` <span class="muted">${esc(e.reason)}</span>` : ""}</td></tr>`);
+
+    rows("revocations", d.revocations, v =>
+      `<tr><td title="${esc(v.jti)}">${esc(v.jti)}</td><td>${fmtTS(v.exp)}</td></tr>`);
+  } catch (err) {
+    $("dot").className = "dot";
+    $("asof").textContent = String(err.message || err).slice(0, 120);
+  }
+}
+
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

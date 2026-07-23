@@ -174,6 +174,29 @@ one poll interval, and if Agent-IAM is briefly unreachable the mesh keeps its
 last-known denylist (fail-safe — an outage never silently un-revokes). Discovery
 advertises `revocation_endpoint`.
 
+## Entitlements, audit trail & admin console (P5) — *implemented*
+
+**Entitlements** generalise the budget claim: a client can carry arbitrary
+policy assertions (`--entitlement tier=gold --entitlement region=eu`) that are
+stamped into every issued token as an `ent` claim. The credential asserts them
+and the audit trail records them; a relying party keys authorization off them
+(the mesh enforces `budget_daily_bytes` today, but any claim is available).
+
+**Audit trail**: every issue, delegation exchange, and revocation is written as
+a structured `AuditEvent` (memory or Postgres), not just a log line — who got
+what authority, on whose behalf, from where. `GET /audit` (admin-token gated)
+queries it with filters; `?format=jsonl` streams newline-delimited JSON for a
+SIEM to tail. `agentiam audit query` is the CLI.
+
+**Admin console**: `GET /console` is a read-only dark-theme UI over the fleet —
+registered clients (never their secrets), recent activity, and active
+revocations. The HTML shell is public (so the operator can enter the token);
+its data endpoint `/console/data` is admin-gated. Client rows are re-projected
+through a struct with no secret field, so a hash cannot leak by construction.
+
+The admin surfaces (`/audit`, `/console/data`) require `AGENTIAM_ADMIN_TOKEN`;
+unset means they are **disabled**, never open — they expose the whole fleet.
+
 ## Endpoints
 
 | method | path | purpose |
@@ -181,6 +204,8 @@ advertises `revocation_endpoint`.
 | POST | `/token` | grant endpoint (client_credentials + RFC 8693 token-exchange; optional DPoP binding) |
 | POST | `/revoke` | RFC 7009 token revocation (client-authenticated; own tokens only) |
 | GET | `/revocations` | the active jti denylist a resource server polls |
+| GET | `/audit` | audit trail query + JSONL SIEM export (admin-gated) |
+| GET | `/console` `/console/data` | read-only admin console (shell public; data admin-gated) |
 | GET | `/.well-known/jwks.json` | public signing keys (RS validates against this) |
 | GET | `/.well-known/oauth-authorization-server` | RFC 8414 discovery metadata |
 | GET | `/healthz` | liveness |
